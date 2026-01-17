@@ -31,5 +31,10 @@ func handle_info(message, state_data):
 				return ["noreply", "error", state_data]
 	return ["noreply", current_state, state_data]
 
+func send_event(event_type, event_data = {}):
+	var message = event_data.duplicate()
+	message["type"] = event_type
+	handle_cast(message, state_data)
+
 func get_state():
 	return current_state
