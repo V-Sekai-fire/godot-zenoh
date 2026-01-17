@@ -166,8 +166,6 @@ func _on_poll_timeout():
 	zenoh_peer.poll()
 
 	var packet_count = zenoh_peer.get_available_packet_count()
-	if packet_count > 0:
-		print("DEBUG: " + str(packet_count) + " packets available")
 
 	# Check for received packets
 	while zenoh_peer.get_available_packet_count() > 0:
@@ -197,10 +195,10 @@ func _on_poll_timeout():
 			countdown_timer.start()
 		else:
 			print("DEBUG: Received non-COUNT message: '" + data_string + "'")
-	else:
-		# Debug poll - remove this after testing
-		if not is_host:
-			print("DEBUG: Client polling, no packets available")
+
+	# Debug poll - remove this after testing
+	if packet_count == 0 and not is_host:
+		print("DEBUG: Client polling, no packets available")
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
