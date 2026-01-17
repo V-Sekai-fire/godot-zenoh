@@ -51,25 +51,25 @@ func _ready():
 	var is_server = args.has("--server")
 	var is_client = args.has("--client")
 
-	if is_server or is_client:
-		print("Running in automatic mode - skip UI")
-		# Initialize zenoh peer
-		zenoh_peer = ZenohMultiplayerPeer.new()
-		zenoh_peer.game_id = "pong_test"
+	# Always run in automatic leader election mode to demonstrate networking
+	print("🔄 Godot-Zenoh: Automatic Leader Election Mode")
 
+	# Initialize zenoh peer for all modes
+	zenoh_peer = ZenohMultiplayerPeer.new()
+	zenoh_peer.game_id = "pong_test"
+
+	# Check command line arguments for specialized testing
+	if is_server or is_client:
+		# Specialized manual testing modes
 		if is_server:
-			print("Auto-starting as server...")
+			print("🖥️ Manual server mode requested")
 			_on_host_pressed()
 		else:
-			print("Auto-starting as client...")
+			print("👨‍💻 Manual client mode requested")
 			_on_join_pressed()
 	else:
-		print("Running in interactive mode - skip UI for leader election")
-		# Initialize zenoh peer
-		zenoh_peer = ZenohMultiplayerPeer.new()
-		zenoh_peer.game_id = "pong_test"
-
-		print("Starting automatic leader election...")
+		# Default: Automatic leader election for all instances
+		print("🎯 Running automatic leader election for all instances")
 		start_leader_election()
 
 	# Create UI in all cases for status display
