@@ -276,9 +276,7 @@ pub struct ZenohMultiplayerPeer {
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
-        godot_print!("ZenohMultiplayerPeer initialized");
-        godot_print!("Priority channels: 0→255 packet ordering");
-        godot_print!("256 virtual channels available");
+        // Silent initialization - no verbose output per Unix philosophy
 
         Self {
             game_id: GString::new(),

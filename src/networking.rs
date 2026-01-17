@@ -41,14 +41,7 @@ impl ZenohSession {
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("Creating Zenoh CLIENT session with topic-based channels");
 
-        // Connect to server peer using environment variable (like successful server approach)
-        let tcp_endpoint = format!("tcp/{}:{}", address, port);
-        godot_print!("Zenoh CLIENT connecting to server at: {}", tcp_endpoint);
-
-        // Set connect endpoint before session creation (critical timing)
-        std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
 
         // Configure session with longer timeouts to prevent disconnections
         std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
@@ -59,8 +52,6 @@ impl ZenohSession {
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
             Ok(sess) => {
-                let zid = sess.zid().to_string();
-                godot_print!("Zenoh CLIENT session created - ZID: {}", zid);
                 Arc::new(sess)
             }
             Err(e) => {
@@ -69,13 +60,7 @@ impl ZenohSession {
             }
         };
 
-        // Don't check liveliness immediately - let the session establish connections naturally
-        // The "you are not allowed to wait for liveliness" error suggests the session needs time
-        // to establish connections before querying peer information
-        godot_print!("CLIENT session created - connections will establish asynchronously");
-
         let zid = session.zid().to_string();
-        godot_print!("Client ZID: {}", zid);
 
         let peer_id = if zid.len() >= 8 {
             let last8 = &zid[zid.len() - 8..];
@@ -83,12 +68,6 @@ impl ZenohSession {
         } else {
             2
         };
-
-        godot_print!(
-            "Zenoh CLIENT ready - Peer ID: {}, Game: {}",
-            peer_id,
-            game_id
-        );
 
         Ok(ZenohSession {
             session,
@@ -106,17 +85,9 @@ impl ZenohSession {
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!(
-            "Creating Zenoh SERVER (Listens on port {}) with topic-based channels",
-            port
-        );
-
         // Server becomes authoritative router using environment variable (like working approach)
         if port > 0 {
             let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
-            godot_print!("Zenoh SERVER acting as router at: {}", listen_endpoint);
-
-            // Set listen endpoint before session creation (critical timing)
             std::env::set_var("ZENOH_LISTEN", listen_endpoint);
         }
 
@@ -129,8 +100,6 @@ impl ZenohSession {
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
             Ok(sess) => {
-                let zid = sess.zid().to_string();
-                godot_print!("Zenoh SERVER router operational - ZID: {}", zid);
                 Arc::new(sess)
             }
             Err(e) => {
@@ -141,11 +110,6 @@ impl ZenohSession {
 
         // Server gets fixed peer ID 1 (Godot convention)
         let peer_id = 1;
-        godot_print!(
-            "Zenoh SERVER (Authoritative Router) - Peer ID: {}, Game: {}",
-            peer_id,
-            game_id
-        );
 
         Ok(ZenohSession {
             session,
@@ -177,18 +141,10 @@ impl ZenohSession {
                 return Error::FAILED;
             }
 
-            // Debug: Always log sent packets for now
-            godot_print!(
-                "DEBUG: Packet sent via Zenoh channel {} (size: {})",
-                channel,
-                p_buffer.len()
-            );
+
         }
 
-        godot_print!(
-            "Zenoh publisher not ready for channel {}, queuing locally",
-            channel
-        );
+
         self.queue_packet_locally(p_buffer, channel, self.peer_id);
         Error::OK
     }
@@ -206,7 +162,6 @@ impl ZenohSession {
         if !self.publishers.lock().unwrap().contains_key(&channel) {
             let publisher = self.session.declare_publisher(topic).await?;
             self.publishers.lock().unwrap().insert(channel, publisher);
-            godot_print!("Zenoh publisher ready for channel {}", channel);
         }
 
         // Setup subscriber if not exists
@@ -247,19 +202,13 @@ impl ZenohSession {
                             .or_insert_with(VecDeque::new)
                             .push_back(packet);
 
-                        godot_print!(
-                            "DEBUG: Received Zenoh packet on channel {} from peer {} (size: {})",
-                            channel,
-                            sender_peer_id,
-                            packet_data.len()
-                        );
+
                     } else {
                         godot_error!("Received malformed Zenoh packet - no peer ID header");
                     }
                 })
                 .await?;
-            self.subscribers.lock().unwrap().insert(channel, subscriber);
-            godot_print!("Zenoh subscriber ready for channel {}", channel);
+
         }
 
         Ok(())
