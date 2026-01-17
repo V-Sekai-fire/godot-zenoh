@@ -18,6 +18,18 @@ var join_button: Button
 
 var countdown_timer: Timer
 
+# Connection state machine constants (integer enum)
+const STATE_DISCONNECTED = 0
+const STATE_CONNECTING = 1
+const STATE_CONNECTED = 2
+const STATE_FAILED = 3
+const STATE_SERVER_READY = 4
+const STATE_CLIENT_ATTEMPTING = 5
+const STATE_ZENOH_SESSION_FAILED = 6
+
+# Connection state machine variables
+var connection_state: int = STATE_DISCONNECTED
+
 func _ready():
 	print("Pong Test Starting...")
 
@@ -66,23 +78,48 @@ func _on_host_pressed():
 	print("Starting as host...")
 	is_host = true
 
+	# STATE MACHINE: Prevent multiple hosts in the same session
+	if connection_state != STATE_DISCONNECTED:
+		label.text = "ALREADY connected! Disconnect first (State: " + str(connection_state) + ")"
+		print("Already connected - cannot start another host session")
+		return
+
+	# STATE MACHINE: Set connecting state before attempting connection
+	connection_state = STATE_CONNECTING
+
 	# Start server
 	var result = zenoh_peer.create_server(7447, 32)
 	if result == 0:
 		var client_id = zenoh_peer.get_unique_id()
 		label.text = "Hosting game - Player ID: " + str(client_id)
 		print("Server Player ID: " + str(client_id))
+
+		# STATE MACHINE: Successfully hosting server
+		connection_state = STATE_SERVER_READY
 		setup_networking()
 	else:
+		# STATE MACHINE: Server creation failed
+		connection_state = STATE_DISCONNECTED
 		label.text = "Failed to host: " + str(result)
 
 func _on_join_pressed():
 	print("Joining as client...")
 	is_host = false
 
-	# Add delay for server to be ready
+	# STATE MACHINE: Check if already connected
+	if zenoh_peer.connection_status() == 2:  # Already connected?
+		label.text = "ALREADY connected! Disconnect first"
+		print("Already connected - cannot join as another client")
+		return
+
+	# STATE MACHINE: Set connecting state (avoid modifying zenoh_peer state directly)
+	connection_state = STATE_CONNECTING
+
+	# Add delay for server to be ready (but continue attempting in background)
 	print("⏳ Waiting 2 seconds for server to fully initialize...")
 	await get_tree().create_timer(2.0).timeout
+
+	connection_state = STATE_CLIENT_ATTEMPTING
 
 	# Join server
 	var result = zenoh_peer.create_client("localhost", 7447)
@@ -93,10 +130,22 @@ func _on_join_pressed():
 			zid = zenoh_peer.get_zid()
 		else:
 			zid = "get_zid not available"
-		label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
-		print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
-		setup_networking()
+
+		# STATE MACHINE: Check if we actually connected to zenoh
+		if zid != "no_session" and zid != "session_lock_failed":
+			connection_state = STATE_CONNECTED
+			label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
+			print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
+			setup_networking()
+		else:
+			# STATE MACHINE: Connected to Godot but zenoh session failed
+			connection_state = STATE_ZENOH_SESSION_FAILED
+			label.text = "GodotConnected but zenoh failed | ZID: " + zid
+			print("❌ Godot connected but zenoh session failed - ZID: " + zid)
+			# TODO: Schedule retry here with state machine
 	else:
+		# STATE MACHINE: Complete failure
+		connection_state = STATE_FAILED
 		label.text = "Failed to join: " + str(result)
 		print("❌ Client create_client failed with error: " + str(result))
 

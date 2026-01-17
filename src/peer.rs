@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::networking::{Packet, ZenohSession};
 use tokio::runtime::{Builder, Runtime};
-// ZBuf moved to zenoh::bytes in 1.7.2
 
 #[derive(GodotClass)]
 #[class(base=MultiplayerPeerExtension, tool)]
@@ -20,6 +19,10 @@ pub struct ZenohMultiplayerPeer {
 
     // Real Zenoh networking session
     zenoh_session: Option<Arc<Mutex<ZenohSession>>>,
+
+    // Connection State Machine
+    connection_state: ConnectionState,
+    state_machine: ZenohConnectionStateMachine,
 
     // Peer management
     unique_id: i64,
@@ -34,6 +37,29 @@ pub struct ZenohMultiplayerPeer {
     base: Base<MultiplayerPeerExtension>,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Failed,
+}
+
+impl Default for ConnectionState {
+    fn default() -> Self {
+        ConnectionState::Disconnected
+    }
+}
+
+#[derive(Clone)]
+struct ZenohConnectionStateMachine {
+    // Track connection attempts and retries
+    max_retries: i32,
+    current_retry: i32,
+    retry_delay: f64,
+    last_retry_time: f64,
+}
+
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
@@ -44,6 +70,13 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         Self {
             game_id: GString::new(),
             zenoh_session: None,
+            connection_state: ConnectionState::Disconnected,
+            state_machine: ZenohConnectionStateMachine {
+                max_retries: 5,
+                current_retry: 0,
+                retry_delay: 2.0,
+                last_retry_time: 0.0,
+            },
             unique_id: 1,
             connection_status: 0, // DISCONNECTED
             transfer_mode: 0,     // UNRELIABLE
