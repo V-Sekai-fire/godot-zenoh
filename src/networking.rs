@@ -65,19 +65,16 @@ impl ZenohSession {
             }
         };
 
-        // CRITICAL: Check if we're ONLINE (connected to server) vs OFFLINE (local session only)
-        // Add delay to allow connection establishment
-        godot_print!("⏳ Checking for online connection establishment...");
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        // Check if we have any active peers (indicates successful online connection)
+        // PROPER ASYNC: Check peer connections without arbitrary delays
+        // Use zenoh's session info which provides current connection state
         let peers_info: Vec<_> = session.info().peers_zid().await.collect();
         if peers_info.is_empty() {
-            godot_error!("❌ CLIENT OFFLINE: No peer connections established - failed to connect to server");
-            return Err("Client failed to establish online connection to server (no peers found)".into());
+            godot_print!("ℹ️ CLIENT OFFLINE: Local session only - no remote peer connections");
+            // This is NOT an error - local offline sessions are valid for zenoh
+            // We distinguish between "session failed" vs "no peers yet"
         } else {
-            godot_print!("✅ CLIENT ONLINE: Successfully connected to {} peer(s)", peers_info.len());
-            for peer_zid in peers_info.iter().take(3) { // Show first 3 peers
+            godot_print!("✅ CLIENT ONLINE: Connected to {} peer(s) - remote networking active", peers_info.len());
+            for peer_zid in peers_info.iter().take(3) {
                 godot_print!("  🟢 Connected to peer: {}", peer_zid);
             }
         }
