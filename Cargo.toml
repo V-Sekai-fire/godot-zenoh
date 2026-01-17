@@ -10,9 +10,8 @@ crate-type = ["cdylib"]
 # Godot GDExtension bindings
 godot = {git = "https://github.com/godot-rust/gdext.git", features = ["register-docs", "api-4-4"]}
 
-# Zenoh networking for HOL blocking prevention
-zenoh = "0.11"
-zenoh-ext = "0.11"
+zenoh = "1.7.2"
+zenoh-config = "1.0"
 
 # For HOL blocking prevention demonstration (random packet generation)
 rand = "0.8"
