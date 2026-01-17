@@ -301,7 +301,9 @@ func _announce_game_start():
 	data.append_array(start_msg.to_utf8_buffer())
 	zenoh_peer.put_packet(data)
 
-	print("Waiting for followers to join game...")
+	print("🎮 LEADER MAKES FIRST MOVE IMMEDIATELY")
+	# 🔥 CRITICAL FIX: Leader makes first X move immediately after announcing game!
+	call_deferred("_make_first_move_immediately")
 
 func reset_tic_tac_toe_game():
 	# Reset game state
@@ -428,12 +430,20 @@ func check_winner() -> String:
 	return ""  # No winner yet
 
 func print_board():
-	print("📋 Tic-Tac-Toe Board (moves: " + str(moves_made) + ", current: " + current_player + ")")
-	print("   " + str(board[0]) + " │ " + str(board[1]) + " │ " + str(board[2]))
-	print("   ──┼───┼──")
-	print("   " + str(board[3]) + " │ " + str(board[4]) + " │ " + str(board[5]))
-	print("   ──┼───┼──")
-	print("   " + str(board[6]) + " │ " + str(board[7]) + " │ " + str(board[8]))
+	print("=== TIC-TAC-TOE BOARD (moves: " + str(moves_made) + ", current turn: " + current_player + ") ===")
+	print("   |   |   ")
+	print(" " + _board_char(board[0]) + " | " + _board_char(board[1]) + " | " + _board_char(board[2]) + " ")
+	print("-----------")
+	print("   |   |   ")
+	print(" " + _board_char(board[3]) + " | " + _board_char(board[4]) + " | " + _board_char(board[5]) + " ")
+	print("-----------")
+	print("   |   |   ")
+	print(" " + _board_char(board[6]) + " | " + _board_char(board[7]) + " | " + _board_char(board[8]) + " ")
+	print("   |   |   ")
+	print("=====================================")
+
+func _board_char(piece: String) -> String:
+	return piece if piece != "" else " "
 
 func _handle_game_end():
 	print("🏁 Game ended with result: " + winner)
@@ -475,6 +485,11 @@ func _on_make_move():
 			print_board()
 			if label:
 				label.text = "TURN: " + current_player + " (You sent to " + ("X" if my_symbol == "O" else "O") + ")"
+
+func _make_first_move_immediately():
+	# 🔥 CRITICAL FIX: Leader makes first X move immediately after announcing game!
+	print("🎮 LEADER: Making first move as X...")
+	_on_make_move()
 
 func _get_best_move() -> int:
 	# Simple AI: Find empty positions, prefer winning/critical positions
