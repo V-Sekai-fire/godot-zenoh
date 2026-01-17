@@ -41,8 +41,8 @@ func proceed_to_server_setup():
 
     test_stage = 1
 
-    # Create server on QUIC port 7447
-    print("Creating Zenoh server on port 7447...")
+    # Create server using zenohd defaults (will connect to zenohd running on port 8000)
+    print("Creating Zenoh server...")
     var server_result = zenoh_peer.create_server(7447, 32)
 
     if server_result == 0: # Godot Error.OK
