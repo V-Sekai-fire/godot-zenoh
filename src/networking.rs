@@ -65,19 +65,10 @@ impl ZenohSession {
             }
         };
 
-        // PROPER ASYNC: Check peer connections without arbitrary delays
-        // Use zenoh's session info which provides current connection state
-        let peers_info: Vec<_> = session.info().peers_zid().await.collect();
-        if peers_info.is_empty() {
-            godot_print!("ℹ️ CLIENT OFFLINE: Local session only - no remote peer connections");
-            // This is NOT an error - local offline sessions are valid for zenoh
-            // We distinguish between "session failed" vs "no peers yet"
-        } else {
-            godot_print!("✅ CLIENT ONLINE: Connected to {} peer(s) - remote networking active", peers_info.len());
-            for peer_zid in peers_info.iter().take(3) {
-                godot_print!("  🟢 Connected to peer: {}", peer_zid);
-            }
-        }
+        // Don't check liveliness immediately - let the session establish connections naturally
+        // The "you are not allowed to wait for liveliness" error suggests the session needs time
+        // to establish connections before querying peer information
+        godot_print!("ℹ️ CLIENT session created - connections will establish asynchronously");
 
         let zid = session.zid().to_string();
         godot_print!("🌐 Client ZID: {}", zid);

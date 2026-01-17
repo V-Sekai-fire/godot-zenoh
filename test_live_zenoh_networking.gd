@@ -1,11 +1,11 @@
 # Basic Zenoh networking test for Godot
 # Tests basic GDExtension functionality and packet handling
 
-extends Node
+extends SceneTree
 
 var zenoh_peer: ZenohMultiplayerPeer
 
-func _ready():
+func _init():
 	print("Zenoh Networking Test")
 	print("Checking basic functionality...")
 
@@ -14,6 +14,7 @@ func _ready():
 
 	if not zenoh_peer:
 		print("ERROR: Failed to create ZenohMultiplayerPeer")
+		quit()
 		return
 
 	zenoh_peer.game_id = "test_game"
@@ -31,5 +32,10 @@ func _ready():
 	var send_result = zenoh_peer.put_packet(test_data)
 	print("Packet send result:", send_result)
 
+	print("Testing ZID retrieval...")
+	var zid = zenoh_peer.get_zid()
+	print("ZID:", zid)
+
 	print("Basic tests completed")
 	zenoh_peer.close()
+	quit()

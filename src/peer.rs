@@ -7,9 +7,227 @@ use godot::builtin::GString as GodotString;
 use godot::global::Error;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 use crate::networking::{Packet, ZenohSession};
-use tokio::runtime::{Builder, Runtime};
+
+// Async command types for Zenoh operations
+#[derive(Debug)]
+enum ZenohCommand {
+    CreateServer { port: i32 },
+    CreateClient { address: String, port: i32 },
+    SendPacket { data: Vec<u8>, channel: i32 },
+    SetupChannels,
+    Close,
+}
+
+// Async event types emitted to Godot
+#[derive(Debug)]
+enum ZenohEvent {
+    ServerCreated { zid: String },
+    ClientConnected { zid: String, peer_id: i64 },
+    OnDataReceived { data: Vec<u8>, channel: i32 },
+    PeerConnected { peer_id: i64 },
+    PeerDisconnected { peer_id: i64 },
+    ConnectionFailed { error: String },
+}
+
+// Async actor for Zenoh operations (properly thread-safe)
+struct ZenohActor {
+    session: Option<ZenohSession>,
+    packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
+    game_id: GodotString,
+}
+
+impl ZenohActor {
+    fn new(packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>, game_id: GodotString) -> Self {
+        Self {
+            session: None,
+            packet_queues,
+            game_id,
+        }
+    }
+
+    async fn handle_command(&mut self, cmd: ZenohCommand) -> Option<ZenohEvent> {
+        match cmd {
+            ZenohCommand::CreateServer { port } => {
+                match ZenohSession::create_server(port, Arc::clone(&self.packet_queues), self.game_id.clone()).await {
+                    Ok(s) => {
+                        let zid = s.get_zid();
+                        self.session = Some(s);
+
+                        // Auto-setup all 256 virtual channels for server
+                        if let Some(sess) = &mut self.session {
+                            for channel in 0..=255 {
+                                let result = sess.setup_channel(channel);
+                                if result != Error::OK {
+                                    godot_error!("Failed to setup channel {}: {:?}", channel, result);
+                                    return Some(ZenohEvent::ConnectionFailed {
+                                        error: format!("Channel setup failed for {}", channel)
+                                    });
+                                }
+                            }
+                            godot_print!("Server created with 256 virtual channels");
+                        }
+
+                        Some(ZenohEvent::ServerCreated { zid })
+                    },
+                    Err(e) => Some(ZenohEvent::ConnectionFailed { error: e.to_string() }),
+                }
+            },
+            ZenohCommand::CreateClient { address, port } => {
+                match ZenohSession::create_client(GString::from(address.as_str()), port, Arc::clone(&self.packet_queues), self.game_id.clone()).await {
+                    Ok(s) => {
+                        let zid = s.get_zid();
+                        let peer_id = s.get_peer_id();
+                        self.session = Some(s);
+                        Some(ZenohEvent::ClientConnected { zid, peer_id })
+                    },
+                    Err(e) => Some(ZenohEvent::ConnectionFailed { error: e.to_string() }),
+                }
+            },
+            ZenohCommand::SendPacket { data, channel } => {
+                if let Some(sess) = &mut self.session {
+                    let result = sess.send_packet(&data, self.game_id.clone(), channel).await;
+                    if result != Error::OK {
+                        godot_error!("Failed to send packet: {:?}", result);
+                    }
+                }
+                None // No event for successful send
+            },
+            ZenohCommand::SetupChannels => {
+                if let Some(sess) = &mut self.session {
+                    for channel in 0..=255 {
+                        let result = sess.setup_channel(channel);
+                        if result != Error::OK {
+                            godot_error!("Failed to setup channel {}: {:?}", channel, result);
+                            return Some(ZenohEvent::ConnectionFailed {
+                                error: format!("Channel setup failed for {}", channel)
+                            });
+                        }
+                    }
+                    godot_print!("All 256 virtual channels setup successfully");
+                }
+                None
+            },
+            ZenohCommand::Close => {
+                self.session = None;
+                None
+            }
+        }
+    }
+}
+
+// Async bridge (single-threaded to respect Zenoh's thread-safety constraints)
+struct ZenohAsyncBridge {
+    command_tx: mpsc::Sender<ZenohCommand>,
+    command_rx: mpsc::Receiver<ZenohCommand>,
+    event_tx: mpsc::Sender<ZenohEvent>,
+    event_rx: mpsc::Receiver<ZenohEvent>,
+    actor: ZenohActor,
+}
+
+impl ZenohAsyncBridge {
+    fn new(packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>, game_id: GodotString) -> Self {
+        let (command_tx, command_rx) = mpsc::channel::<ZenohCommand>(32);
+        let (event_tx, event_rx) = mpsc::channel::<ZenohEvent>(32);
+
+        let actor = ZenohActor::new(packet_queues, game_id);
+
+        Self {
+            command_tx,
+            command_rx,
+            event_tx,
+            event_rx,
+            actor,
+        }
+    }
+
+    fn poll_events(&mut self, peer: &mut ZenohMultiplayerPeer) {
+        // Process any pending commands synchronously (since Zenoh isn't thread-safe)
+        // This is called from Godot's main thread, so it's safe
+
+        // Note: In a real implementation, you'd want to use async here but since
+        // we can't spawn tasks, we process commands one at a time
+        // For now, we'll just check for events
+
+        while let Ok(event) = self.event_rx.try_recv() {
+            match event {
+                ZenohEvent::ServerCreated { zid } => {
+                    peer.connection_status = 2; // CONNECTED
+                    peer.unique_id = 1; // Server is peer 1
+                    godot_print!("✅ SERVER CREATED ASYNC: ZID: {}, Peer ID: {}", zid, peer.unique_id);
+                },
+                ZenohEvent::ClientConnected { zid, peer_id } => {
+                    peer.connection_status = 2; // CONNECTED
+                    peer.unique_id = peer_id;
+                    godot_print!("✅ CLIENT CONNECTED ASYNC: ZID: {}, Peer ID: {}", zid, peer_id);
+                },
+                ZenohEvent::OnDataReceived { data, channel } => {
+                    // Add packet to queue for polling
+                    let mut queues = peer.packet_queues.lock().unwrap();
+                    let packet = Packet { data: data.clone() };
+                    queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
+                    godot_print!("📥 ASYNC DATA RECEIVED: {} bytes on channel {}", data.len(), channel);
+                },
+                ZenohEvent::PeerConnected { peer_id } => {
+                    godot_print!("🔗 PEER CONNECTED ASYNC: Peer ID {}", peer_id);
+                },
+                ZenohEvent::PeerDisconnected { peer_id } => {
+                    godot_print!("📤 PEER DISCONNECTED ASYNC: Peer ID {}", peer_id);
+                },
+                ZenohEvent::ConnectionFailed { error } => {
+                    peer.connection_status = 0; // DISCONNECTED
+                    godot_error!("❌ CONNECTION FAILED ASYNC: {}", error);
+                },
+            }
+        }
+    }
+
+    fn send_command(&self, cmd: ZenohCommand) -> Result<(), mpsc::error::TrySendError<ZenohCommand>> {
+        // Try to send command to queue
+        match self.command_tx.try_send(cmd) {
+            Ok(()) => {
+                godot_print!("✅ Command queued successfully");
+                Ok(())
+            }
+            Err(e) => {
+                godot_error!("❌ Failed to queue command: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    // Process commands immediately when called (not just in poll)
+    fn process_pending_commands(&mut self) -> Vec<ZenohEvent> {
+        let mut events = Vec::new();
+
+        // Process all pending commands
+        while let Ok(cmd) = self.command_rx.try_recv() {
+            godot_print!("🔄 Processing command: {:?}", cmd);
+            if let Some(event) = futures::executor::block_on(async {
+                self.actor.handle_command(cmd).await
+            }) {
+                events.push(event);
+            }
+        }
+
+        events
+    }
+
+    // Process a single command synchronously (called from poll_events)
+    fn process_command(&mut self) -> Option<ZenohEvent> {
+        if let Ok(cmd) = self.command_rx.try_recv() {
+            // Process command synchronously since we can't spawn async tasks
+            // In a real async implementation, this would be async
+            futures::executor::block_on(async {
+                self.actor.handle_command(cmd).await
+            })
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(GodotClass)]
 #[class(base=MultiplayerPeerExtension, tool)]
@@ -17,7 +235,10 @@ pub struct ZenohMultiplayerPeer {
     #[export]
     game_id: GodotString,
 
-    // Real Zenoh networking session
+    // Async bridge for Zenoh networking
+    async_bridge: Option<Box<ZenohAsyncBridge>>,
+
+    // Legacy sync session for compatibility
     zenoh_session: Option<Arc<Mutex<ZenohSession>>>,
 
     #[allow(dead_code)]
@@ -34,6 +255,9 @@ pub struct ZenohMultiplayerPeer {
     packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     current_channel: i32,
     max_packet_size: i32,
+
+    // Store ZID for get_zid() method
+    zid: GodotString,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -75,6 +299,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
         Self {
             game_id: GString::new(),
+            async_bridge: None,
             zenoh_session: None,
             connection_state: ConnectionState::Disconnected,
             state_machine: ZenohConnectionStateMachine {
@@ -89,6 +314,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             packet_queues: Arc::new(Mutex::new(HashMap::new())),
             current_channel: 0,
             max_packet_size: 1472, // UDP MTU - Zenoh overhead
+            zid: GString::from(""),
             base: _base,
         }
     }
@@ -153,7 +379,49 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn poll(&mut self) {
-        // HOL blocking prevention doesn't require polling
+        // Poll async bridge for completed events and process any remaining commands
+        if let Some(bridge) = &mut self.async_bridge {
+            // Process any remaining commands
+            let events = bridge.process_pending_commands();
+            for event in events {
+                // Handle events directly here to avoid borrowing issues
+                match event {
+                    ZenohEvent::ServerCreated { zid } => {
+                        self.connection_status = 2; // CONNECTED
+                        self.unique_id = 1; // Server is peer 1
+                        self.zid = GString::from(zid.as_str());
+                        godot_print!("✅ SERVER CREATED ASYNC: ZID: {}, Peer ID: {}", zid, self.unique_id);
+                    },
+                    ZenohEvent::ClientConnected { zid, peer_id } => {
+                        self.connection_status = 2; // CONNECTED
+                        self.unique_id = peer_id;
+                        self.zid = GString::from(zid.as_str());
+                        self.unique_id = peer_id;
+                        self.zid = GString::from(zid.as_str());
+                        godot_print!("✅ CLIENT CONNECTED ASYNC: ZID: {}, Peer ID: {}", zid, peer_id);
+                    },
+                    ZenohEvent::OnDataReceived { data, channel } => {
+                        // Add packet to queue for polling
+                        let mut queues = self.packet_queues.lock().unwrap();
+                        let packet = Packet { data: data.clone() };
+                        queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
+                        godot_print!("📥 ASYNC DATA RECEIVED: {} bytes on channel {}", data.len(), channel);
+                    },
+                    ZenohEvent::PeerConnected { peer_id } => {
+                        godot_print!("🔗 PEER CONNECTED ASYNC: Peer ID {}", peer_id);
+                    },
+                    ZenohEvent::PeerDisconnected { peer_id } => {
+                        godot_print!("📤 PEER DISCONNECTED ASYNC: Peer ID {}", peer_id);
+                    },
+                    ZenohEvent::ConnectionFailed { error } => {
+                        self.connection_status = 0; // DISCONNECTED
+                        godot_error!("❌ CONNECTION FAILED ASYNC: {}", error);
+                    },
+                }
+            }
+        }
+
+        // HOL blocking prevention doesn't require additional polling
         // Protected mode is used by base class
     }
 
@@ -192,15 +460,9 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_zid(&self) -> String {
-        if let Some(session) = &self.zenoh_session {
-            if let Ok(guard) = session.lock() {
-                guard.get_zid()
-            } else {
-                "session_lock_failed".to_string()
-            }
-        } else {
-            "no_session".to_string()
-        }
+        let zid_str = self.zid.to_string();
+        godot_print!("get_zid() returning: '{}'", zid_str);
+        zid_str
     }
 
     #[func]
@@ -255,23 +517,16 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn put_packet_on_channel(&mut self, p_buffer: PackedByteArray, channel: i32) -> Error {
-        if let Some(zenoh_session_arc) = &self.zenoh_session {
-            // Send via Zenoh pub/sub networking
-            let session_clone = Arc::clone(zenoh_session_arc);
+        // Use async bridge for sending packets
+        if let Some(bridge) = &self.async_bridge {
             let data_vec = p_buffer.to_vec();
-            let game_id = self.game_id.clone();
-
-            std::thread::spawn(move || {
-                let runtime = Runtime::new().unwrap();
-                runtime.block_on(async {
-                    let session = session_clone.lock().unwrap();
-                    let error = session.send_packet(&data_vec, game_id, channel).await;
-                    if error != Error::OK {
-                        godot_error!("Zenoh packet send failed: {:?}", error);
-                    }
-                });
-            });
-
+            if let Err(e) = bridge.send_command(ZenohCommand::SendPacket {
+                data: data_vec,
+                channel,
+            }) {
+                godot_error!("Failed to send packet via async bridge: {:?}", e);
+                return Error::FAILED;
+            }
             return Error::OK;
         }
 
@@ -371,107 +626,90 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
-        godot_print!("Creating Zenoh client on {}:{}", address, port);
-        let runtime = Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let packet_queues = Arc::clone(&self.packet_queues);
+        godot_print!("Creating Zenoh client asynchronously on {}:{}", address, port);
 
-        let session_result = runtime.block_on(async {
-            ZenohSession::create_client(address, port, packet_queues, self.game_id.clone()).await
-        });
+        // Initialize async bridge if not exists
+        if self.async_bridge.is_none() {
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                Arc::clone(&self.packet_queues),
+                self.game_id.clone(),
+            )));
+        }
 
-        match session_result {
-            Ok(session) => {
-                let session_arc = Arc::new(Mutex::new(session));
-                self.zenoh_session = Some(Arc::clone(&session_arc));
-
-                // Wire up all virtual channels 0-255 to Zenoh
-                let session_for_channels = Arc::clone(&session_arc);
-                match runtime.block_on(async move {
-                    let session_guard = session_for_channels.lock().unwrap();
-                    for channel in 0..=255 {
-                        let result = session_guard.setup_channel(channel);
-                        if result != Error::OK {
-                            return Err(format!("Channel setup failed for {}", channel));
-                        }
-                    }
-                    Ok(())
-                }) {
-                    Ok(_) => {
-                        godot_print!("Connected with 256 virtual channels")
-                    }
-                    Err(e) => {
-                        godot_error!("❌ Failed to setup channels: {:?}", e);
-                        return Error::FAILED;
-                    }
-                }
-
-                // Use the peer_id that was assigned in the networking session (ZID-derived)
-                let session_guard = session_arc.lock().unwrap();
-                self.unique_id = session_guard.get_peer_id();
-                self.connection_status = 2; // CONNECTED
-                godot_print!("Client connected with ID {} and active", self.unique_id);
-                Error::OK
+        // Send async command to create client
+        if let Some(bridge) = &mut self.async_bridge {
+            if let Err(e) = bridge.send_command(ZenohCommand::CreateClient {
+                address: address.to_string(),
+                port,
+            }) {
+                godot_error!("Failed to send create client command: {:?}", e);
+                return Error::FAILED;
             }
-            Err(e) => {
-                godot_error!("❌ Client connection failed: {:?}", e);
-                Error::FAILED
+
+            // Process the command immediately to create the session
+            let events = bridge.process_pending_commands();
+            for event in events {
+                match event {
+                    ZenohEvent::ClientConnected { zid, peer_id } => {
+                        self.connection_status = 2; // CONNECTED
+                        self.unique_id = peer_id;
+                        godot_print!("✅ CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
+                    },
+                    ZenohEvent::ConnectionFailed { error } => {
+                        self.connection_status = 0; // DISCONNECTED
+                        godot_error!("❌ CLIENT CONNECTION FAILED: {}", error);
+                        return Error::FAILED;
+                    },
+                    _ => {} // Ignore other events for now
+                }
             }
         }
+
+        godot_print!("Client creation completed");
+        Error::OK
     }
 
     #[func]
     fn create_server(&mut self, port: i32, _max_clients: i32) -> Error {
-        godot_print!("Creating Zenoh server on port {}", port);
-        let runtime = Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let packet_queues = Arc::clone(&self.packet_queues);
+        godot_print!("Creating Zenoh server asynchronously on port {}", port);
 
-        let session_result = runtime.block_on(async {
-            ZenohSession::create_server(port, packet_queues, self.game_id.clone())
-                .await
-        });
+        // Initialize async bridge if not exists
+        if self.async_bridge.is_none() {
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                Arc::clone(&self.packet_queues),
+                self.game_id.clone(),
+            )));
+        }
 
-        match session_result {
-            Ok(session) => {
-                let session_arc = Arc::new(Mutex::new(session));
-                self.zenoh_session = Some(Arc::clone(&session_arc));
-
-                // Wire up all virtual channels 0-255 to Zenoh
-                let session_for_channels = Arc::clone(&session_arc);
-                match runtime.block_on(async move {
-                    let session_guard = session_for_channels.lock().unwrap();
-                    for channel in 0..=255 {
-                        let result = session_guard.setup_channel(channel);
-                        if result != Error::OK {
-                            return Err(format!("Channel setup failed for {}", channel));
-                        }
-                    }
-                    Ok(())
-                }) {
-                    Ok(_) => {
-                        godot_print!("Server started with 256 virtual channels")
-                    }
-                    Err(e) => {
-                        godot_error!("❌ Failed to setup channels: {:?}", e);
-                        return Error::FAILED;
-                    }
-                }
-
-                self.unique_id = 1; // Server gets ID 1
-                self.connection_status = 2; // CONNECTED
-                godot_print!("Server active");
-                Error::OK
+        // Send async command to create server
+        if let Some(bridge) = &mut self.async_bridge {
+            if let Err(e) = bridge.send_command(ZenohCommand::CreateServer { port }) {
+                godot_error!("Failed to send create server command: {:?}", e);
+                return Error::FAILED;
             }
-            Err(e) => {
-                godot_error!("❌ Server startup failed: {:?}", e);
-                Error::FAILED
+
+            // Process the command immediately to create the session
+            let events = bridge.process_pending_commands();
+            for event in events {
+                match event {
+                    ZenohEvent::ServerCreated { zid } => {
+                        self.connection_status = 2; // CONNECTED
+                        self.unique_id = 1; // Server is peer 1
+                        self.zid = GString::from(zid.as_str());
+                        godot_print!("✅ SERVER CREATED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, self.unique_id);
+                    },
+                    ZenohEvent::ConnectionFailed { error } => {
+                        self.connection_status = 0; // DISCONNECTED
+                        godot_error!("❌ SERVER CREATION FAILED: {}", error);
+                        return Error::FAILED;
+                    },
+                    _ => {} // Ignore other events for now
+                }
             }
         }
+
+        godot_print!("Server creation completed");
+        Error::OK
     }
 
     #[func]

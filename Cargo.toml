@@ -19,6 +19,9 @@ rand = "0.8"
 # Async runtime for Zenoh
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
+# For async signal handling
+futures = "0.3"
+
 [build-dependencies]
 # Optional: if we need custom build steps
 # godot-bindgen = "0.1"
