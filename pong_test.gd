@@ -69,7 +69,6 @@ func _on_host_pressed():
 	# Start server
 	var result = zenoh_peer.create_server(7447, 32)
 	if result == 0:
-		my_id = 1
 		var client_id = zenoh_peer.get_unique_id()
 		label.text = "Hosting game - Player ID: " + str(client_id)
 		print("Server Player ID: " + str(client_id))
@@ -84,11 +83,10 @@ func _on_join_pressed():
 	# Join server
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result == 0:
-		my_id = 2
 		var client_id = zenoh_peer.get_unique_id()
 		label.text = "Joined game - Player ID: " + str(client_id)
 		print("Client Player ID: " + str(client_id))
-		print("DEBUG: Verifying client ID assignment...")
+		print("DEBUG: Client connection successful - ID assigned by Zenoh")
 		setup_networking()
 	else:
 		label.text = "Failed to join: " + str(result)
