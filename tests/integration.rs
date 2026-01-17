@@ -1,7 +1,6 @@
 /// Test for Tic-Tac-Toe state machine transitions and race conditions
 #[cfg(test)]
 mod tic_tac_toe_state_machine_tests {
-    use super::*;
 
     #[test]
     fn test_hlc_timing_prevents_race_conditions() {

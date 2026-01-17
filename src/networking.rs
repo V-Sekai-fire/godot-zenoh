@@ -2,13 +2,11 @@ use godot::builtin::GString;
 use godot::global::Error;
 use godot::prelude::*;
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 // ZBuf import will be added when zenoh 1.7.2 module structure is known
 // For now using Vec<u8> - will replace with native ZBuf when api known
 use zenoh::pubsub::Publisher;
-use zenoh::pubsub::Subscriber;
 
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
@@ -23,10 +21,6 @@ pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
-    /// Subscribers for each channel (lazy initialization)
-    subscribers: Arc<Mutex<HashMap<i32, Subscriber<()>>>>,
-    /// packet queues for message processing
-    packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     /// Game identifier
     game_id: GString,
     /// Unique peer identifier
@@ -36,9 +30,6 @@ pub struct ZenohSession {
 impl ZenohSession {
     /// Create Zenoh networking client session (connects to server peer)
     pub async fn create_client(
-        address: GString,
-        port: i32,
-        packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
 
@@ -72,8 +63,6 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
-            subscribers: Arc::new(Mutex::new(HashMap::new())),
-            packet_queues,
             game_id,
             peer_id,
         })
@@ -82,14 +71,11 @@ impl ZenohSession {
     /// Create Zenoh networking server session (becomes authoritative router)
     pub async fn create_server(
         port: i32,
-        packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Server becomes authoritative router using environment variable (like working approach)
-        if port > 0 {
-            let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
-            std::env::set_var("ZENOH_LISTEN", listen_endpoint);
-        }
+        let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
+        std::env::set_var("ZENOH_LISTEN", listen_endpoint);
 
         // Configure session with longer timeouts to prevent disconnections
         std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
@@ -114,8 +100,6 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
-            subscribers: Arc::new(Mutex::new(HashMap::new())),
-            packet_queues,
             game_id,
             peer_id,
         })
@@ -152,8 +136,6 @@ impl ZenohSession {
     /// Setup publisher/subscriber for topic-based channel
     pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let game_id = &self.game_id;
-        let packet_queues = Arc::clone(&self.packet_queues);
-        let peer_id = self.peer_id;
         let topic: &'static str = Box::leak(
             format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
         );
@@ -162,53 +144,6 @@ impl ZenohSession {
         if !self.publishers.lock().unwrap().contains_key(&channel) {
             let publisher = self.session.declare_publisher(topic).await?;
             self.publishers.lock().unwrap().insert(channel, publisher);
-        }
-
-        // Setup subscriber if not exists
-        if !self.subscribers.lock().unwrap().contains_key(&channel) {
-            let subscriber = self
-                .session
-                .declare_subscriber(topic)
-                .callback(move |sample| {
-                    // Extract sender peer ID from header (first 8 bytes)
-                    let payload_bytes = sample.payload().to_bytes();
-                    let full_data: Vec<u8> = payload_bytes.to_vec();
-
-                    if full_data.len() >= 8 {
-                        let sender_peer_id = i64::from_le_bytes(
-                            full_data[0..8].try_into().unwrap(),
-                        );
-
-                        // Extract actual packet data (skip header)
-                        let packet_data = &full_data[8..];
-
-                        // Filter self-messages: Don't receive packets we sent during pub/sub delivery
-                        // This prevents the "send message → immediately receive it back" loop
-                        if sender_peer_id == peer_id {
-                            // Silent ignore - this is normal in pub/sub systems
-                            return;
-                        }
-
-                        // Create packet with sender info
-                        let packet = Packet {
-                            data: packet_data.to_vec(),
-                            from_peer: sender_peer_id,
-                        };
-
-                        // Queue packet for processing
-                        let mut queues = packet_queues.lock().unwrap();
-                        queues
-                            .entry(channel)
-                            .or_insert_with(VecDeque::new)
-                            .push_back(packet);
-
-
-                    } else {
-                        godot_error!("Received malformed Zenoh packet - no peer ID header");
-                    }
-                })
-                .await?;
-
         }
 
         Ok(())
@@ -232,17 +167,11 @@ impl ZenohSession {
     }
 
     /// Local queue fallback for message processing
-    fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
+    fn queue_packet_locally(&self, p_buffer: &[u8], _channel: i32, from_peer_id: i64) {
         let data = p_buffer.to_vec(); // Use Vec<u8> directly
-        let packet = Packet {
+        let _packet = Packet {
             data,
             from_peer: from_peer_id,
         };
-
-        let mut queues = self.packet_queues.lock().unwrap();
-        queues
-            .entry(channel)
-            .or_insert_with(VecDeque::new)
-            .push_back(packet);
     }
 }

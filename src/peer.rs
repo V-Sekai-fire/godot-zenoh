@@ -16,11 +16,11 @@ use crate::networking::{Packet, ZenohSession};
 #[derive(Debug)]
 enum ZenohCommand {
     CreateServer { port: i32 },
+    #[allow(dead_code)] // Note: address and port fields are reserved for future functionality
     CreateClient { address: String, port: i32 },
     SendPacket { data: Vec<u8>, channel: i32 },
     GetHLCTimestamp,
 }
-
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i32 },
@@ -30,18 +30,15 @@ enum ZenohStateUpdate {
 // Async actor for Zenoh operations (properly thread-safe)
 struct ZenohActor {
     session: Option<ZenohSession>,
-    packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     game_id: GodotString,
 }
 
 impl ZenohActor {
     fn new(
-        packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GodotString,
     ) -> Self {
         Self {
             session: None,
-            packet_queues,
             game_id,
         }
     }
@@ -51,7 +48,6 @@ impl ZenohActor {
             ZenohCommand::CreateServer { port } => {
                 match ZenohSession::create_server(
                     port,
-                    Arc::clone(&self.packet_queues),
                     self.game_id.clone(),
                 )
                 .await
@@ -79,11 +75,8 @@ impl ZenohActor {
                     }),
                 }
             }
-            ZenohCommand::CreateClient { address, port } => {
+            ZenohCommand::CreateClient { address: _, port: _ } => {
                 match ZenohSession::create_client(
-                    GString::from(address.as_str()),
-                    port,
-                    Arc::clone(&self.packet_queues),
                     self.game_id.clone(),
                 )
                 .await
@@ -147,7 +140,7 @@ struct ZenohAsyncBridge {
 
 impl ZenohAsyncBridge {
     fn new(
-        packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
+        _packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GodotString,
     ) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
@@ -158,7 +151,7 @@ impl ZenohAsyncBridge {
         let event_queue_clone = Arc::clone(&event_queue);
         let stop_flag_clone = Arc::clone(&stop_flag);
 
-        let actor = ZenohActor::new(packet_queues, game_id);
+        let actor = ZenohActor::new(game_id);
 
         // Spawn the worker thread
         let join_handle = thread::spawn(move || {

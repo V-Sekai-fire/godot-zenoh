@@ -5,8 +5,6 @@ pub mod networking;
 pub mod peer;
 
 // mod extension;  // Not needed for current implementation
-
-pub use peer::*;
 // pub use extension::*;  // Not needed for current implementation
 
 // Make the ZenohMultiplayerPeer class visible for gdextension registration
