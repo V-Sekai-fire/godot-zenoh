@@ -88,7 +88,7 @@ func _on_host_pressed():
 	connection_state = STATE_CONNECTING
 
 	# Start server
-	var result = zenoh_peer.create_server(7447, 32)
+	var result = zenoh_peer.create_server(7448, 32)
 	if result == 0:
 		var client_id = zenoh_peer.get_unique_id()
 		label.text = "Hosting game - Player ID: " + str(client_id)
@@ -122,7 +122,7 @@ func _on_join_pressed():
 	connection_state = STATE_CLIENT_ATTEMPTING
 
 	# Join server
-	var result = zenoh_peer.create_client("localhost", 7447)
+	var result = zenoh_peer.create_client("localhost", 7448)
 	if result == 0:
 		var client_id = zenoh_peer.get_unique_id()
 		var zid = ""
