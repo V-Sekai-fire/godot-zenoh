@@ -559,17 +559,24 @@ func _on_election_timeout():
 func restart_election_with_timeout_extension():
 	# Extend election timeout again until we have real peer IDs
 	print("Extending election timeout for real peer ID assignment...")
-	if election_timer:
-		election_timer.stop()
-		election_timer.free()
-		election_timer = null
 
-	election_timer = Timer.new()
-	election_timer.one_shot = true
-	election_timer.wait_time = 2.0  # Additional 2 seconds to get real IDs
-	election_timer.connect("timeout", Callable(self, "_on_election_timeout"))
-	add_child(election_timer)
-	election_timer.start()
+	# Don't free existing timer during a callback - Godot may still process it
+	# Just create a new one with extended timeout
+	var new_timer = Timer.new()
+	new_timer.one_shot = true
+	new_timer.wait_time = 2.0  # Additional 2 seconds to get real IDs
+	new_timer.connect("timeout", Callable(self, "_on_election_timeout"))
+	add_child(new_timer)
+	new_timer.start()
+
+	# Store the new timer and try to clean up old one safely
+	var old_timer = election_timer
+	election_timer = new_timer
+
+	# Mark old timer for safe cleanup (don't call immediately)
+	if old_timer and old_timer != new_timer:
+		# Use a deferred cleanup to avoid locking issues
+		call_deferred("_safe_free_timer", old_timer)
 
 	print("Election extended - waiting for real Zenoh peer IDs...")
 
@@ -673,6 +680,17 @@ func _on_hlc_request_pressed():
 		print("✅ HLC timestamp request sent to worker thread")
 	else:
 		print("❌ Failed to send HLC timestamp request")
+
+func _safe_free_timer(old_timer: Timer):
+	# Safely free the timer after the current frame to avoid locking issues
+	if old_timer and not old_timer.is_inside_tree():
+		# Timer is already removed from tree, safe to free
+		old_timer.free()
+		print("Old election timer safely freed")
+	elif old_timer and old_timer.is_inside_tree():
+		# Timer still in tree, mark for freeing at end of frame
+		old_timer.call_deferred("free")
+		print("Old election timer marked for deferred freeing")
 
 func _notification(what):
 	if what == NOTIFICATION_EXIT_TREE:
