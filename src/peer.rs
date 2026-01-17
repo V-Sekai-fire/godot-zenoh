@@ -39,10 +39,7 @@ pub struct ZenohMultiplayerPeer {
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
-        godot_print!("ZenohMultiplayerPeer initializing with HOL blocking prevention");
-        godot_print!("🎯 HOL BLOCKING PREVENTION ACTIVE: Channels processed 0→255 priority order");
-        godot_print!("🛡️ Critical packets on low channels always processed first");
-        godot_print!("🌐 Zenoh networking integration ready");
+        godot_print!("ZenohMultiplayerPeer initialized");
 
         Self {
             game_id: GString::new(),

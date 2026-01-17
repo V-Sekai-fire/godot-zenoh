@@ -14,17 +14,17 @@ config/name="Godot Zenoh Demo"
 run/main_scene="res://main_scene.tscn"
 config/features=PackedStringArray("4.6")
 
-[godot]
-
-single_window=true
-
-[gdextension]
-
-libraries={
-    "res://godot-zenoh.gdextension": ""
-}
-
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+
+[gdextension]
+
+libraries={
+"res://godot-zenoh.gdextension": ""
+}
+
+[godot]
+
+single_window=true
