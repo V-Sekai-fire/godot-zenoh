@@ -418,16 +418,19 @@ impl ZenohMultiplayerPeer {
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
+                    godot_print!("📦 DEBUG: Retrieved packet from channel {} (size: {})", priority, packet.data.len());
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
                 }
             }
         }
+        godot_print!("📦 DEBUG: No packets available in any queue");
         PackedByteArray::new()
     }
 
     #[func]
     fn put_packet(&mut self, p_buffer: PackedByteArray) -> Error {
+        godot_print!("🔍 DEBUG: put_packet called with {} bytes on channel {}", p_buffer.len(), self.current_channel);
         self.put_packet_on_channel(p_buffer, self.current_channel)
     }
 
