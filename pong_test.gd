@@ -442,15 +442,54 @@ func _board_char(piece: String) -> String:
 	return piece if piece != "" else " "
 
 func _handle_game_end():
-	print("🏁 Game ended with result: " + winner)
-	if label:
-		label.text = "GAME OVER: " + winner
+	# 🎯 CLEAR GAME END DETERMINATION: Make all endings distinct and visible
+	var end_reason = ""
+	var winner_symbol = winner.to_upper()
+	var loser_symbol = "O" if winner_symbol == "X" else "X"
 
-	# Broadcast game end
-	var end_msg = "GAME_END:" + winner
+	if winner == "DRAW":
+		print("🏆 TIE GAME: Board is full with no winner")
+		end_reason = "TIE - All squares filled, no winner emerges"
+
+	elif winner_symbol == my_symbol:
+		print("🎉 VICTORY FOR " + winner_symbol + ": " + ("You" if winner_symbol == my_symbol else "Opponent"))
+		if my_symbol == "X":
+			end_reason = "X WINS the Tic-Tac-Toe championship!"
+		else:
+			end_reason = "O WINS against all odds!"
+
+	else:
+		print("💔 DEFEAT FOR " + loser_symbol + ": " + winner_symbol + " claims the victory")
+		if my_symbol == "X":
+			end_reason = "X LOST - O takes the game!"
+		else:
+			end_reason = "O CONCEEDS - X victorious!"
+
+	# Clear game completion status for all
+	print("🏁 FINAL BOARD (winner: " + winner + "):")
+	print_board()
+	print(("🎯 RESULT: " + end_reason).to_upper())
+
+	if label:
+		label.text = "GAME END: " + end_reason
+
+	# Broadcast specific game end type
+	var end_msg = ""
+	if winner == "DRAW":
+		end_msg = "GAME_TIE:BOARD_FULL:NO_WINNER"
+	elif winner_symbol == "X":
+		end_msg = "GAME_WIN:X_DEFEATS_O:THREE_IN_ROW"
+	elif winner_symbol == "O":
+		end_msg = "GAME_WIN:O_DEFEATS_X:BLOCK_COMPLETED"
+	else:
+		end_msg = "GAME_ERROR:INVALID_END_STATE"  # Should never happen
+
 	var data = PackedByteArray()
 	data.append_array(end_msg.to_utf8_buffer())
 	zenoh_peer.put_packet(data)
+
+	print("📢 Game end broadcasted: " + end_msg)
+	print("🏆 Official game result: " + winner_symbol + " victory, " + loser_symbol + " defeat, or honorable tie!")
 
 func _on_make_move():
 	# 🔥 DEMO: Make a Tic-Tac-Toe move (leader coordinates the game)
