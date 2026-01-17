@@ -368,6 +368,10 @@ func _process_tic_tac_toe_message(msg: String):
 						button.disabled = false
 						if label:
 							label.text = "YOUR TURN: Make Tic-Tac-Toe move (" + my_symbol + ")"
+
+						# 🔥 AUTO-PLAY DEMO: ALL PLAYERS automatically make moves!
+						print("🎮 Auto-playing Tic-Tac-Toe move for " + my_symbol + " (turn: " + current_player + ")")
+						_on_make_move()
 					else:
 						button.disabled = true
 
@@ -990,11 +994,15 @@ func complete_leader_election_as_follower():
 	connection_state = STATE_CONNECTED
 	is_host = false
 
-	if label:
-		label.text = "FOLLOWER: Connecting to leader..."
+	# 🔥 FOLLOWERS GET O - opposite of leaders!
+	my_symbol = "O"
+	print("🎯 I am O (follower/second player) in Tic-Tac-Toe game")
 
-	# Setup client networking
-	setup_networking()
+	if label:
+		label.text = "FOLLOWER: Connecting to leader for Tic-Tac-Toe..."
+
+	# Setup Tic-Tac-Toe client networking (not legacy networking)
+	setup_tic_tac_toe_networking()
 
 func restart_election_with_real_id():
 	# Clear previous election state
