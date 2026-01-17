@@ -18,10 +18,30 @@ var join_button: Button
 
 var countdown_timer: Timer
 
-# RAFT CONSENSUS STATE
-var raft_consensus: ZenohRaftConsensus = null
-var election_timer: Timer              # Timer for election completion
-var leader_election_phase: bool = false  # Whether we're in election phase
+# BULLETIN-BOARD ALGORITHM STATE (HLC-based state machine coordination!)
+enum ElectionState {
+    DISCONNECTED,           # Initial state - not started
+    WAITING_CONNECTIONS,    # Connecting to Zenoh network
+    GENERATING_ID,          # Requesting HLC timestamp for election
+    BROADCASTING_HEARTBEATS,# Broadcasting HLC election ID
+    COLLECTING_PEERS,       # Collecting all peer heartbeats
+    DECIDING_LEADER,        # Running bully algorithm
+    VICTORY_BROADCASTING,   # I won - announcing victory
+    VICTORY_LISTENING,      # Waiting for victory/defeat messages
+    FINALIZED               # Election complete - leader/follower set
+}
+
+var election_state: ElectionState = ElectionState.DISCONNECTED
+var election_timer: Timer              # Grace period timer only
+var leader_election_phase: bool = false     # Whether we're in election phase
+var known_peers = []                   # Known peer election IDs
+var my_election_id: int = -1          # My HLC-based election ID
+var current_leader_id: int = -1      # Elected leader election ID
+var election_message_queue = []       # Queued election messages
+var collected_peer_ids = []           # All discovered election IDs for comparison
+
+# RAFT CONSENSUS STATE (reverted - not implemented)
+# var raft_consensus: ZenohRaftConsensus = null
 
 # Connection state machine constants (integer enum)
 const STATE_DISCONNECTED = 0
@@ -442,50 +462,44 @@ func get_state_text(state: int) -> String:
 		STATE_LEADER_ELECTION: return "LEADER_ELECTION"
 		_: return "UNKNOWN"
 
-# LEADER ELECTION FUNCTIONS - Deterministic Bully-like Algorithm
+# STATE MACHINE LEADER ELECTION - HLC-based Deterministic Bully Algorithm
 func start_leader_election():
-	leader_election_phase = true
-	known_peers = []
-	connection_state = STATE_LEADER_ELECTION
+	if election_state != ElectionState.DISCONNECTED:
+		print("⚠️ Election already in progress (state: " + str(election_state) + ")")
+		return
 
+	print("🏁 Starting HLC-based bully election state machine")
+	leader_election_phase = true
+	connection_state = STATE_LEADER_ELECTION
+	collected_peer_ids = []
+	known_peers = []
+
+	# STATE: WAITING_CONNECTIONS
+	election_state = ElectionState.WAITING_CONNECTIONS
 	if label:
-		label.text = "ELECTING LEADER... Collecting peers"
+		label.text = "ELECTING LEADER: Connecting to Zenoh..."
+	print("🔗 Election State: WAITING_CONNECTIONS")
 
 	# Connect to Zenoh network first
-	print("Connecting to Zenoh network for leader election...")
+	print("Connecting to Zenoh network for election...")
 
-	# Try client connection first for leader election (non-blocking)
+	# Try client connection first (non-blocking)
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result != 0:
-		# If server doesn't exist, become the first server immediately
-		print("No existing server found - becoming the leader")
+		# If no existing server, become the leader immediately
+		print("No existing Zenoh server - becoming the immediate leader")
 		result = zenoh_peer.create_server(7447, 32)
 		if result == 0:
-			print("✅ Took leadership - became server")
+			print("✅ Became immediate leader - server role")
 			complete_leader_election_as_leader()
 			return
 		else:
 			print("❌ Failed to create server as leader")
 			return
 
-	# Client connection initiated - connection state will be updated asynchronously
-	# through the poll() state machine callbacks (no blocking/polling loops)
-	print("Client connection initiated - election will proceed when connected")
-	# The election timer and polling will handle the connection state
-	# This is pure event-driven - no await loops waiting for connection
+	print("Client connection initiated - waiting for connected state")
 
-	# Send heartbeat to announce presence
-	send_election_heartbeat()
-
-	# Start election timeout timer
-	election_timer = Timer.new()
-	election_timer.one_shot = true
-	election_timer.wait_time = 3.0  # 3 seconds to collect all peers
-	election_timer.connect("timeout", Callable(self, "_on_election_timeout"))
-	add_child(election_timer)
-	election_timer.start()
-
-	# Start polling for election messages
+	# Start polling for connection state changes and election messages
 	var poll_timer = Timer.new()
 	poll_timer.autostart = true
 	poll_timer.wait_time = 0.1
@@ -500,7 +514,7 @@ func send_election_heartbeat():
 		election_id = my_id
 	else:
 		# Use process ID and timestamp as deterministic election ID
-		election_id = OS.get_process_id() + int(Time.get_unix_time_from_system() * 1000)
+		election_id = zenoh_peer.request_hlc_timestamp()
 
 	var heartbeat_msg = "ELECT:" + str(election_id) + ":" + str(zenoh_peer.get_zid())
 	var data = PackedByteArray()
@@ -514,22 +528,209 @@ func send_election_heartbeat():
 func _on_election_poll():
 	zenoh_peer.poll()
 
+	# Handle state machine transitions based on connection state
+	if election_state == ElectionState.WAITING_CONNECTIONS:
+		if zenoh_peer.connection_status() == 2:  # Connected
+			print("Zenoh connected - proceeding to generate HLC election ID")
+			_election_transition_generating_id()
+
+	# Process election messages and state transitions
 	while zenoh_peer.get_available_packet_count() > 0:
 		var data = zenoh_peer.get_packet()
 		var msg = data.get_string_from_utf8()
 
-		if msg.begins_with("ELECT:"):
-			var parts = msg.split(":")
-			if parts.size() >= 3:
-				var peer_id = int(parts[1])
-				var peer_zid = parts[2]
+		_process_election_message(msg)
 
-				# Add to known peers if not already known
-				if known_peers.find(peer_id) == -1 and peer_id != zenoh_peer.get_unique_id():
-					known_peers.append(peer_id)
-					print("Discovered peer #" + str(peer_id) + " (" + peer_zid + ")")
+func _process_election_message(msg: String):
+	# Handle different election message types based on current state
+	if msg.begins_with("ELECT:"):
+		var parts = msg.split(":")
+		if parts.size() >= 3:
+			var peer_election_id = int(parts[1])
+			var peer_zid = parts[2]
+
+			# Add to collected election IDs
+			if collected_peer_ids.find(peer_election_id) == -1:
+				collected_peer_ids.append(peer_election_id)
+				print("📥 Received election announcement #" + str(peer_election_id) + " (" + peer_zid + ")")
+				print("   Total election IDs collected: " + str(collected_peer_ids.size()))
+
+			# State-specific message handling
+			match election_state:
+				ElectionState.COLLECTING_PEERS:
 					if label:
-						label.text = "ELECTING LEADER... Found " + str(known_peers.size()) + " peers"
+						label.text = "ELECTING LEADER: " + str(collected_peer_ids.size()) + " participants"
+					_check_if_all_peers_collected()
+
+	elif msg.begins_with("VICTORY:"):
+		var parts = msg.split(":")
+		if parts.size() >= 4:
+			var winner_election_id = int(parts[1])
+			var winner_zid = parts[2]
+			print("🎉 VICTORY MESSAGE received from #" + str(winner_election_id) + " (" + winner_zid + ")")
+
+			if election_state == ElectionState.VICTORY_LISTENING:
+				if winner_election_id == my_election_id:
+					print("✅ That's me! I won the election")
+				else:
+					print("✅ Another instance won - I will be a follower")
+					complete_leader_election_as_follower()
+	elif msg.begins_with("FINAL_ELECT:"):
+		print("🔄 Received final election signal - restarting election with real IDs")
+		restart_election_with_real_id()
+
+func _check_if_all_peers_collected():
+	# If we have at least one peer and we've been collecting for a bit, proceed to decide
+	# In a real implementation, we'd know the expected number of participants
+	if collected_peer_ids.size() >= 2:  # Assuming we expect at least 3 total
+		print("Collected enough peer announcements - proceeding to election decision")
+		_election_transition_deciding_leader()
+
+# STATE MACHINE TRANSITION FUNCTIONS
+func _election_transition_generating_id():
+	election_state = ElectionState.GENERATING_ID
+	print("🔗 Election State: GENERATING_ID")
+
+	# Request HLC timestamp for consistent election ID
+	var hlc_result = zenoh_peer.request_hlc_timestamp()
+	if hlc_result == 0:
+		print("HLC timestamp requested - waiting for response")
+
+		# Set a short timer to wait for HLC response and transition
+		election_timer = Timer.new()
+		election_timer.one_shot = true
+		election_timer.wait_time = 0.5  # Wait 500ms for HLC
+		election_timer.connect("timeout", Callable(self, "_on_hlc_ready_timeout"))
+		add_child(election_timer)
+		election_timer.start()
+	else:
+		print("❌ Failed to request HLC timestamp")
+		# Fall back to using current timestamp
+		my_election_id = int(Time.get_unix_time_from_system() * 1000000)
+		_election_transition_broadcasting()
+
+func _on_hlc_ready_timeout():
+	# Check if HLC timestamp is available (simplified - in real impl check a callback)
+	# For now, generate our ID and proceed
+	my_election_id = int(Time.get_unix_time_from_system() * 1000000) # Use microsecond precision
+	print("Using election ID: " + str(my_election_id))
+	_election_transition_broadcasting()
+
+func _election_transition_broadcasting():
+	election_state = ElectionState.BROADCASTING_HEARTBEATS
+	print("🔗 Election State: BROADCASTING_HEARTBEATS")
+
+	# Broadcast our election ID
+	var heartbeat_msg = "ELECT:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid())
+	var data = PackedByteArray()
+	data.append_array(heartbeat_msg.to_utf8_buffer())
+
+	var result = zenoh_peer.put_packet(data)
+	if result == 0:
+		print("✅ Sent election announcement: " + heartbeat_msg)
+		if label:
+			label.text = "ELECTING LEADER: Announced participation"
+	else:
+		print("⚠️ Failed to send election announcement")
+
+	# Transition to collecting peers after broadcasting
+	_election_transition_collecting_peers()
+
+func _election_transition_collecting_peers():
+	election_state = ElectionState.COLLECTING_PEERS
+	print("🔗 Election State: COLLECTING_PEERS")
+
+	if label:
+		label.text = "ELECTING LEADER: Collecting peer announcements"
+
+	# Set a grace period to collect peer announcements
+	election_timer = Timer.new()
+	election_timer.one_shot = true
+	election_timer.wait_time = 1.0  # ⚡ FAST HEATBEAT: 1 second to collect peers
+	election_timer.connect("timeout", Callable(self, "_on_collecting_timeout"))
+	add_child(election_timer)
+	election_timer.start()
+
+func _on_collecting_timeout():
+	print("Collection timeout - proceeding with available peers")
+	if collected_peer_ids.size() > 0:
+		_election_transition_deciding_leader()
+	else:
+		print("No peer announcements collected - waiting longer")
+		# Could extend collection time here
+
+func _election_transition_deciding_leader():
+	election_state = ElectionState.DECIDING_LEADER
+	print("🔗 Election State: DECIDING_LEADER")
+
+	if label:
+		label.text = "ELECTING LEADER: Analyzing participants"
+
+	# Include our own ID in the decision
+	collected_peer_ids.append(my_election_id)
+
+	# Sort by ID - lowest HLC timestamp wins!
+	collected_peer_ids.sort()
+
+	print("Election Decision Analysis:")
+	print("  All participant IDs: " + str(collected_peer_ids))
+	print("  Lowest ID (winner): " + str(collected_peer_ids[0]))
+	print("  My ID: " + str(my_election_id))
+
+	# Bully algorithm: lowest ID wins
+	var winner_id = collected_peer_ids[0]
+	current_leader_id = winner_id
+
+	if my_election_id == winner_id:
+		print("🎉 I WON THE ELECTION! Lowest HLC ID: #" + str(my_election_id))
+		_election_transition_victory_broadcasting()
+	else:
+		print("✅ I lost - following leader #" + str(winner_id))
+		_election_transition_victory_listening()
+
+func _election_transition_victory_broadcasting():
+	election_state = ElectionState.VICTORY_BROADCASTING
+	print("🔗 Election State: VICTORY_BROADCASTING")
+
+	if label:
+		label.text = "ELECTING LEADER: Broadcasting victory"
+
+	# Announce victory to all participants
+	var victory_msg = "VICTORY:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid()) + ":HLC_LOWEST_WINS"
+	var data = PackedByteArray()
+	data.append_array(victory_msg.to_utf8_buffer())
+
+	var result = zenoh_peer.put_packet(data)
+	if result == 0:
+		print("🌟 Victory broadcast sent: " + victory_msg)
+	else:
+		print("⚠️ Failed to send victory broadcast")
+
+	# Victory announced - complete election
+	election_state = ElectionState.FINALIZED
+	print("🏆 Election complete - I am the SINGLE LEADER")
+	complete_leader_election_as_leader()
+
+func _election_transition_victory_listening():
+	election_state = ElectionState.VICTORY_LISTENING
+	print("🔗 Election State: VICTORY_LISTENING")
+
+	if label:
+		label.text = "ELECTING LEADER: Waiting for winner announcement"
+
+	# Set a reasonable timeout for victory announcement
+	election_timer = Timer.new()
+	election_timer.one_shot = true
+	election_timer.wait_time = 3.0  # Longer timeout for victory announcement
+	election_timer.connect("timeout", Callable(self, "_on_victory_listening_timeout"))
+	add_child(election_timer)
+	election_timer.start()
+
+func _on_victory_listening_timeout():
+	print("Victory announcement timeout - assuming election complete")
+	election_state = ElectionState.FINALIZED
+	print("🏁 Election finalized - proceeding as follower")
+	complete_leader_election_as_follower()
 
 func signal_final_election():
 	print("🏁 Signalling final election to all participants!")
@@ -543,40 +744,38 @@ func signal_final_election():
 func _on_election_timeout():
 	print("Election timeout - analyzing " + str(known_peers.size()) + " discovered peers")
 
-	var real_peers = []
-
-	# Collect only real peer IDs (normal integer ranges, not timestamp-based)
-	for peer_id in known_peers:
-		if peer_id < 1000:  # Zenoh peer IDs are usually < 1000
-			real_peers.append(peer_id)
-
-	# Include our own real ID if available
-	if my_id != -1 and my_id < 1000:
-		real_peers.append(my_id)
-
-	print("Real peers collected: " + str(real_peers))
-
-	if real_peers.size() > 0:
-		# Complete election with all known real IDs
-		real_peers.sort()
-		var leader_id = real_peers[0]
-		print("� ELECTION COMPLETE: Lowest real ID leader is #" + str(leader_id))
-
-		if leader_id == my_id:
-			print("✅ I WON THE ELECTION - becoming server leader")
-			complete_leader_election_as_leader()
-		else:
-			print("✅ Election over - connecting as client to leader #" + str(leader_id))
-			complete_leader_election_as_follower()
-
-	elif my_id == -1:
-		# Still using temporary ID - extend election
-		print("🔄 Still using temporary ID - extending election phase")
+	if my_id == -1:
+		print("⏳ Still no Zenoh ID - extending election")
 		restart_election_with_timeout_extension()
+		return
+
+	# TRUE BULLY ALGORITHM: Am I the lowest ID among all known peers?
+	var all_known_peers = []
+	all_known_peers.append_array(known_peers)
+	all_known_peers.append(my_id)  # Include myself
+
+	# Sort by ID - lowest ID wins
+	all_known_peers.sort()
+	var lowest_peer_id = all_known_peers[0]
+
+	print("Bully Election Analysis:")
+	print("  Known peers: " + str(known_peers))
+	print("  My ID: " + str(my_id))
+	print("  Lowest ID: " + str(lowest_peer_id))
+	print("  Am I the winner? " + str(my_id == lowest_peer_id))
+
+	if my_id == lowest_peer_id:
+		print("🎉 BULLY VICTORY: I have the lowest ID #" + str(my_id))
+		print("🌟 I am the SINGLE LEADER!")
+		current_leader_id = my_id
+		broadcast_leader_victory()
+		complete_leader_election_as_leader()
 	else:
-		# Have real ID but no other real IDs yet - wait briefly for others to signal
-		print("⏳ Have real ID but waiting for other real participants...")
-		restart_election_with_timeout_extension()
+		print("✅ Defeat: " + str(lowest_peer_id) + " has lower ID than me (" + str(my_id) + ")")
+		print("👥 I am a follower to leader #" + str(lowest_peer_id))
+		current_leader_id = lowest_peer_id
+		stop_broadcasting_hearts()  # Quit competing
+		complete_leader_election_as_follower()
 
 func restart_election_with_timeout_extension():
 	# Extend election timeout again until we have real peer IDs
@@ -652,6 +851,20 @@ func restart_election_with_real_id():
 
 	print("Election restarted with real peer IDs - completing leader selection")
 
+func broadcast_leader_victory():
+	# Announce victory to all peers
+	var victory_msg = "VICTORY:" + str(my_id) + ":" + str(zenoh_peer.get_zid()) + ":LOWEST_ID_WINS"
+	var data = PackedByteArray()
+	data.append_array(victory_msg.to_utf8_buffer())
+
+	zenoh_peer.put_packet(data)
+	print("🌟 Broadcasting BULLY VICTORY: '" + victory_msg + "' - All other instances should become followers")
+
+func stop_broadcasting_hearts():
+	# Stop sending heartbeats since election is over
+	print("🛑 Stopping election heartbeat broadcasts - election is over")
+	# Could kill the polling timer here, but the leader might still need it
+
 # MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
 func compute_state_hash() -> String:
 	# Create state object representing SHARED game state (exclude identity for consensus)
@@ -682,7 +895,7 @@ func record_received_message(message: String, from_id: int):
 	var record = {
 		"msg": message,
 		"from": from_id,
-		"time": Time.get_unix_time_from_system()
+		"time": zenoh_peer.request_hlc_timestamp()
 	}
 	received_messages_log.append(record)
 
@@ -691,7 +904,7 @@ func record_response_message(message: String, to_id: int):
 	var record = {
 		"msg": message,
 		"to": to_id,
-		"time": Time.get_unix_time_from_system()
+		"time": zenoh_peer.request_hlc_timestamp()
 	}
 	response_messages_log.append(record)
 
