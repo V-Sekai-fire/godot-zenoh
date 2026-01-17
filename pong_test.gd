@@ -250,18 +250,14 @@ func setup_networking():
 
 func _on_ping_pong_start():
 	if is_host:
-		# Host starts the countdown
-		print("Starting ping pong countdown as host")
+		# Host starts the countdown (legacy mode disabled)
+		print("Legacy ping pong countdown disabled - using Tic-Tac-Toe mode")
 		if label:
-			label.text = "Starting countdown..."
-		is_counting_down = true
-		countdown_number = 10
-		_send_count()
-		countdown_timer.start()
+			label.text = "Election complete - ready for Tic-Tac-Toe..."
 	else:
-		# Client waits to receive first message
+		# Client waits (legacy mode disabled)
 		if label:
-			label.text = "Waiting for host to start..."
+			label.text = "Waiting in Tic-Tac-Toe game mode..."
 
 func _on_send_pressed():
 	# Send countdown number
