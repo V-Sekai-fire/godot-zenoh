@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b3j5e2r5o7j2k"]
+
+[ext_resource type="Script" uid="uid://cn75f0ndqeabk" path="res://godot_zenoh/core/pong_test.gd" id="1_yangt"]
+
+[node name="pong_test" type="Node"]
+script = ExtResource("1_yangt")
