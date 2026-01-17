@@ -124,25 +124,44 @@ func _on_join_pressed():
 	# Join server
 	var result = zenoh_peer.create_client("localhost", 7448)
 	if result == 0:
-		var client_id = zenoh_peer.get_unique_id()
-		var zid = ""
-		if zenoh_peer.has_method("get_zid"):
-			zid = zenoh_peer.get_zid()
-		else:
-			zid = "get_zid not available"
+		# Wait for connection to complete (poll until connected or timeout)
+		var connection_timeout = 5.0  # 5 second timeout
+		var start_time = Time.get_time_dict_from_system()
+		var elapsed = 0.0
 
-		# STATE MACHINE: Check if we actually connected to zenoh
-		if zid != "no_session" and zid != "session_lock_failed":
+		while elapsed < connection_timeout:
+			zenoh_peer.poll()  # Process async commands
+
+			if zenoh_peer.connection_status() == 2:  # CONNECTED
+				var client_id = zenoh_peer.get_unique_id()
+				var zid = ""
+				if zenoh_peer.has_method("get_zid"):
+					zid = zenoh_peer.get_zid()
+				else:
+					zid = "get_zid not available"
+
+				connection_state = STATE_CONNECTED
+				label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
+				print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
+				setup_networking()
+				return
+
+			await get_tree().create_timer(0.1).timeout  # Wait 100ms
+			elapsed = Time.get_time_dict_from_system()["elapsed"] - start_time["elapsed"]
+
+		# Timeout - check final status
+		var final_status = zenoh_peer.connection_status()
+		if final_status == 2:  # CONNECTED
+			var client_id = zenoh_peer.get_unique_id()
+			var zid = zenoh_peer.get_zid()
 			connection_state = STATE_CONNECTED
 			label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
-			print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
+			print("Client connected after timeout - ID: " + str(client_id) + " | ZID: " + zid)
 			setup_networking()
 		else:
-			# STATE MACHINE: Connected to Godot but zenoh session failed
 			connection_state = STATE_ZENOH_SESSION_FAILED
-			label.text = "GodotConnected but zenoh failed | ZID: " + zid
-			print("❌ Godot connected but zenoh session failed - ZID: " + zid)
-			# TODO: Schedule retry here with state machine
+			label.text = "Connection timeout | Status: " + str(final_status)
+			print("❌ Client connection timeout - Status: " + str(final_status))
 	else:
 		# STATE MACHINE: Complete failure
 		connection_state = STATE_FAILED
