@@ -17,7 +17,7 @@ pub struct Packet {
     pub from_peer: i64, // Sender peer ID for self-message filtering
 }
 
-/// Zenoh networking session with HOL blocking prevention - ASYNC IMPLEMENTATION
+/// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
 pub struct ZenohSession {
     /// Zenoh networking session
     session: Arc<zenoh::Session>,
@@ -25,7 +25,7 @@ pub struct ZenohSession {
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
     /// Subscribers for each channel (lazy initialization)
     subscribers: Arc<Mutex<HashMap<i32, Subscriber<()>>>>,
-    /// packet_queues for HOL processing
+    /// packet queues for message processing
     packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     /// Game identifier
     game_id: GString,
@@ -41,7 +41,7 @@ impl ZenohSession {
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
+        godot_print!("Creating Zenoh CLIENT session with topic-based channels");
 
         // Connect to server peer using environment variable (like successful server approach)
         let tcp_endpoint = format!("tcp/{}:{}", address, port);
@@ -107,7 +107,7 @@ impl ZenohSession {
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!(
-            "Creating Zenoh SERVER (Listens on port {}) - HOL blocking prevention ENABLED",
+            "Creating Zenoh SERVER (Listens on port {}) with topic-based channels",
             port
         );
 
@@ -157,7 +157,7 @@ impl ZenohSession {
         })
     }
 
-    /// HOL BLOCKING PREVENTION: Send packet on specific virtual channel (async)
+    /// Send packet on specific topic-based channel (async)
     pub async fn send_packet(&self, p_buffer: &[u8], game_id: GString, channel: i32) -> Error {
         let _topic = format!("godot/game/{}/channel{:03}", game_id, channel);
 
@@ -179,7 +179,7 @@ impl ZenohSession {
 
             // Debug: Always log sent packets for now
             godot_print!(
-                "DEBUG: Packet sent via Zenoh HOL channel {} (size: {})",
+                "DEBUG: Packet sent via Zenoh channel {} (size: {})",
                 channel,
                 p_buffer.len()
             );
@@ -193,7 +193,7 @@ impl ZenohSession {
         Error::OK
     }
 
-    /// HOL BLOCKING PREVENTION: Setup publisher/subscriber for virtual channel
+    /// Setup publisher/subscriber for topic-based channel
     pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let game_id = &self.game_id;
         let packet_queues = Arc::clone(&self.packet_queues);
@@ -215,7 +215,7 @@ impl ZenohSession {
                 .session
                 .declare_subscriber(topic)
                 .callback(move |sample| {
-                    // HOL BLOCKING PREVENTION: Extract sender peer ID from header (first 8 bytes)
+                    // Extract sender peer ID from header (first 8 bytes)
                     let payload_bytes = sample.payload().to_bytes();
                     let full_data: Vec<u8> = payload_bytes.to_vec();
 
@@ -227,10 +227,10 @@ impl ZenohSession {
                         // Extract actual packet data (skip header)
                         let packet_data = &full_data[8..];
 
-                        // BLOCK SELF-MESSAGES: Don't receive packets we sent during pub/sub delivery
+                        // Filter self-messages: Don't receive packets we sent during pub/sub delivery
                         // This prevents the "send message → immediately receive it back" loop
                         if sender_peer_id == peer_id {
-                            // Silent ignore - this is normal in pub/sub systems but disruptive here
+                            // Silent ignore - this is normal in pub/sub systems
                             return;
                         }
 
@@ -240,7 +240,7 @@ impl ZenohSession {
                             from_peer: sender_peer_id,
                         };
 
-                        // Queue packet for HOL processing
+                        // Queue packet for processing
                         let mut queues = packet_queues.lock().unwrap();
                         queues
                             .entry(channel)
@@ -282,7 +282,7 @@ impl ZenohSession {
         Ok(hlc_timestamp)
     }
 
-    /// Local queue fallback for HOL processing
+    /// Local queue fallback for message processing
     fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
         let data = p_buffer.to_vec(); // Use Vec<u8> directly
         let packet = Packet {
