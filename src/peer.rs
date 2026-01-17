@@ -255,20 +255,20 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     // Virtual method overrides for multiplayer peer functionality
-    fn get_available_packet_count(&self) -> i32 {
+    fn _get_available_packet_count(&self) -> i32 {
         let queues = self.packet_queues.lock().unwrap();
         queues.values().map(|q| q.len() as i32).sum()
     }
 
-    fn get_max_packet_size(&self) -> i32 {
+    fn _get_max_packet_size(&self) -> i32 {
         self.max_packet_size
     }
 
-    fn get_packet_channel(&self) -> i32 {
+    fn _get_packet_channel(&self) -> i32 {
         self.current_channel
     }
 
-    fn get_packet_mode(&self) -> TransferMode {
+    fn _get_packet_mode(&self) -> TransferMode {
         match self.transfer_mode {
             0 => TransferMode::UNRELIABLE,
             1 => TransferMode::UNRELIABLE_ORDERED,
@@ -277,16 +277,16 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         }
     }
 
-    fn set_transfer_channel(&mut self, channel: i32) {
+    fn _set_transfer_channel(&mut self, channel: i32) {
         self.current_channel = channel;
         godot_print!("Virtual channel set to: {}", channel);
     }
 
-    fn get_transfer_channel(&self) -> i32 {
+    fn _get_transfer_channel(&self) -> i32 {
         self.current_channel
     }
 
-    fn set_transfer_mode(&mut self, mode: TransferMode) {
+    fn _set_transfer_mode(&mut self, mode: TransferMode) {
         // Zenoh is a pub/sub system without guaranteed delivery, so treat RELIABLE as UNRELIABLE_ORDERED
         self.transfer_mode = match mode {
             TransferMode::UNRELIABLE => 0,
@@ -297,24 +297,24 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         godot_print!("Transfer mode set to: {} (Zenoh pub/sub - best effort delivery)", self.transfer_mode);
     }
 
-    fn get_transfer_mode(&self) -> TransferMode {
-        self.get_packet_mode()
+    fn _get_transfer_mode(&self) -> TransferMode {
+        self._get_packet_mode()
     }
 
-    fn set_target_peer(&mut self, _peer_id: i32) {
+    fn _set_target_peer(&mut self, _peer_id: i32) {
         // Virtual channels don't use target peer concept
         godot_print!("Target peer setting not applicable for virtual channels");
     }
 
-    fn get_packet_peer(&self) -> i32 {
+    fn _get_packet_peer(&self) -> i32 {
         self.current_packet_peer
     }
 
-    fn is_server(&self) -> bool {
+    fn _is_server(&self) -> bool {
         self.unique_id == 1
     }
 
-    fn poll(&mut self) {
+    fn _poll(&mut self) {
         // Poll async bridge for completed commands
         if let Some(bridge) = &mut self.async_bridge {
             // Process any pending commands and handle their events
@@ -326,7 +326,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
-                        
+
                         // Emit connected_to_server signal for clients
                         self.base_mut().emit_signal("connected_to_server", &[]);
                     },
@@ -339,7 +339,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
                         godot_error!("CONNECTION FAILED: {}", error);
-                        
+
                         // Emit connection_failed signal
                         self.base_mut().emit_signal("connection_failed", &[]);
                     },
@@ -351,7 +351,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         // Protected mode is used by base class
     }
 
-    fn close(&mut self) {
+    fn _close(&mut self) {
         // Only log if we were actually connected
         if self.connection_status != 0 {
             godot_print!("ZenohMultiplayerPeer connection closed");
@@ -362,16 +362,16 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         // Note: Zenoh session will be dropped when async_bridge is dropped
     }
 
-    fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
+    fn _disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
         // Virtual channels handle packets, not peer connections
         godot_print!("Peer disconnection not applicable for virtual channels");
     }
 
-    fn get_unique_id(&self) -> i32 {
+    fn _get_unique_id(&self) -> i32 {
         self.unique_id as i32
     }
 
-    fn get_connection_status(&self) -> ConnectionStatus {
+    fn _get_connection_status(&self) -> ConnectionStatus {
         match self.connection_status {
             0 => ConnectionStatus::DISCONNECTED,
             1 => ConnectionStatus::CONNECTING,
