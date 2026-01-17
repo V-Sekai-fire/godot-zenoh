@@ -245,7 +245,7 @@ impl ZenohSession {
 
                 let subscriber_result = self.runtime.block_on(async {
                     let topic: &'static str = Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
-                    let packet_queues = packet_queues.clone();
+                    let _packet_queues = packet_queues.clone();
 
                     session.declare_subscriber(topic)
                         .callback(move |sample| {
@@ -260,7 +260,12 @@ impl ZenohSession {
                             godot_print!("📥 DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
                                    topic_str, hol_priority, sample.payload().len());
 
-                            // Remove per-packet queuing log to reduce spam
+                            let packet = Packet {
+                                data,
+                            };
+
+                            let mut queues = _packet_queues.lock().unwrap();
+                            queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
                         })
                         .await
                 });
