@@ -51,6 +51,11 @@ impl ZenohSession {
         // Set connect endpoint before session creation (critical timing)
         std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
 
+        // Configure session with longer timeouts to prevent disconnections
+        std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
+        std::env::set_var("ZENOH_CLOSE_TIMEOUT", "30000"); // 30 seconds
+        std::env::set_var("ZENOH_KEEP_ALIVE", "10000"); // 10 seconds keepalive
+
         // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
@@ -115,6 +120,11 @@ impl ZenohSession {
             // Set listen endpoint before session creation (critical timing)
             std::env::set_var("ZENOH_LISTEN", listen_endpoint);
         }
+
+        // Configure session with longer timeouts to prevent disconnections
+        std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
+        std::env::set_var("ZENOH_CLOSE_TIMEOUT", "30000"); // 30 seconds
+        std::env::set_var("ZENOH_KEEP_ALIVE", "10000"); // 10 seconds keepalive
 
         // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
