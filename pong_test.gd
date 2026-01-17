@@ -17,6 +17,10 @@ var winner: String = ""                  # "X", "O", or "DRAW"
 var my_symbol: String = ""               # Assigned during game start
 var moves_made: int = 0                  # Total moves played
 
+# HLC-based turn coordination to prevent race conditions
+var last_x_move_hlc_timestamp = 0        # HLC timestamp of last X move received
+var hlc_turn_threshold = 50000           # 50ms buffer for network/HLC timing delays
+
 # Legacy variables for disabled countdown code (prevent parser errors)
 var countdown_number: int = 10
 var last_received_count: int = -1
@@ -271,7 +275,7 @@ func _on_send_pressed():
 	var data = PackedByteArray()
 	data.append_array(message.to_utf8_buffer())
 
-	zenoh_peer.put_packet(data)
+	zenoh_peer.put_packet(data, 1)
 	print("Sent: " + message)
 
 	# Decrement for next send
@@ -301,7 +305,7 @@ func _announce_game_start():
 	var start_msg = "GAME_START:" + str(current_leader_id) + ":LEADER_IS_X:FOLLOWERS_ARE_O"
 	var data = PackedByteArray()
 	data.append_array(start_msg.to_utf8_buffer())
-	zenoh_peer.put_packet(data)
+	zenoh_peer.put_packet(data, 1)
 
 	print("🎮 LEADER MAKES FIRST MOVE IMMEDIATELY")
 	# 🔥 CRITICAL FIX: Leader makes first X move immediately after announcing game!
@@ -331,11 +335,18 @@ func _on_tic_tac_toe_poll():
 			if label:
 				label.text = "FOLLOWER: I am O - waiting for X to move"
 
-	# Process game messages
-	while zenoh_peer.get_available_packet_count() > 0:
-		var data = zenoh_peer.get_packet()
-		var msg = data.get_string_from_utf8()
-		_process_tic_tac_toe_message(msg)
+	# Process game messages - CHECK SUBSCRIPTION ISSUES
+	var packet_count = zenoh_peer.get_available_packet_count(1)
+	if packet_count > 0:
+		print("📨 TIC-TAC-TOE POLL: " + str(packet_count) + " packets available for processing")
+		while zenoh_peer.get_available_packet_count(1) > 0:
+			var data = zenoh_peer.get_packet(1)
+			var msg = data.get_string_from_utf8()
+			print("🎮 Processing Tic-Tac-Toe message: '" + msg.left(50) + "...'")
+			_process_tic_tac_toe_message(msg)
+	else:
+		# Debug: Show we're running but no messages
+		print("🔄 TIC-TAC-TOE POLL: No packets available (normal if not my turn)")
 
 func _process_tic_tac_toe_message(msg: String):
 	if msg.begins_with("GAME_START:"):
@@ -351,6 +362,11 @@ func _process_tic_tac_toe_message(msg: String):
 			var from_id = parts[3]
 
 			print("📝 Received move from " + str(from_id) + ": " + move_player + " at position " + str(move_position))
+
+			# HLC-based turn coordination: Track X move timestamps for timing validation
+			if move_player == "X":
+				last_x_move_hlc_timestamp = get_current_hlc_timestamp()
+				print("⏱️  Captured X move HLC timestamp: " + str(last_x_move_hlc_timestamp))
 
 			# Apply the move and update game state
 			if _apply_game_move(move_player, move_position):
@@ -486,7 +502,7 @@ func _handle_game_end():
 
 	var data = PackedByteArray()
 	data.append_array(end_msg.to_utf8_buffer())
-	zenoh_peer.put_packet(data)
+	zenoh_peer.put_packet(data, 1)
 
 	print("📢 Game end broadcasted: " + end_msg)
 	print("🏆 Official game result: " + winner_symbol + " victory, " + loser_symbol + " defeat, or honorable tie!")
@@ -508,7 +524,7 @@ func _on_make_move():
 	var data = PackedByteArray()
 	data.append_array(move_msg.to_utf8_buffer())
 
-	var result = zenoh_peer.put_packet(data)
+	var result = zenoh_peer.put_packet(data, 1)
 	if result == 0:
 		print("✅ Sent Tic-Tac-Toe move: " + my_symbol + " at position " + str(move_position))
 		button.disabled = true
@@ -527,23 +543,40 @@ func _make_first_move_immediately():
 	_on_make_move()
 
 func _check_and_make_auto_move():
-	# 🔥 Check if it's our turn and make a move automatically
+	# 🔥 HLC-BASED TURN VALIDATION: Prevent race conditions with timestamp checks
 	print("🔍 DEBUG: Checking auto-move - current_player=" + current_player + ", my_symbol=" + my_symbol + ", game_over=" + str(game_over))
 
-	if current_player == my_symbol and not game_over:
-		button.disabled = false
-		if label:
-			label.text = "YOUR TURN: Auto-playing move (" + my_symbol + ")"
-
-		# Auto-play move immediately whenever it's our turn
-		print("🎮 AUTO-PLAYING: It's my turn (" + my_symbol + ") - making move now!")
-		_on_make_move()
-	else:
+	# Basic turn check - is it my turn?
+	if current_player != my_symbol or game_over:
 		button.disabled = true
 		if not game_over:
 			print("⏳ Waiting for " + current_player + " to move - current player is " + current_player + ", I am " + my_symbol)
 		else:
 			print("🏆 Game finished")
+		return
+
+	# 🔥 HLC TIMESTAMP VALIDATION: For O players, ensure sufficient time since X's last move
+	# Prevents O from auto-playing immediately after receiving X's move (race condition)
+	if my_symbol == "O":
+		var current_hlc = get_current_hlc_timestamp()
+		var elapsed_since_x = current_hlc - last_x_move_hlc_timestamp
+
+		print("🕐 HLC Validation - Current: " + str(current_hlc) + ", Last X: " + str(last_x_move_hlc_timestamp) +
+			  ", Elapsed: " + str(elapsed_since_x) + ", Threshold: " + str(hlc_turn_threshold))
+
+		if elapsed_since_x < hlc_turn_threshold:
+			print("⏳ TOO SOON: O waiting for HLC timing before auto-play (" + str(hlc_turn_threshold - elapsed_since_x) + " remaining)")
+			return  # Don't make move yet
+
+		print("✅ HLC VALIDATED: Sufficient time elapsed - O can now auto-play")
+
+	# Turn is valid and timing checks passed - proceed with auto-play
+	button.disabled = false
+	if label:
+		label.text = "YOUR TURN: Auto-playing move (" + my_symbol + ")"
+
+	print("🎮 AUTO-PLAYING: It's my turn (" + my_symbol + ") - making move now!")
+	_on_make_move()
 
 func _get_best_move() -> int:
 	# Simple AI: Find empty positions, prefer winning/critical positions
@@ -605,8 +638,8 @@ func _on_poll_timeout():
 		update_peer_info()
 
 	# Check for received packets
-	while zenoh_peer.get_available_packet_count() > 0:
-		var data = zenoh_peer.get_packet()
+	while zenoh_peer.get_available_packet_count(1) > 0:
+		var data = zenoh_peer.get_packet(1)
 		var data_string = data.get_string_from_utf8()
 
 			# Handle simple countdown message: "COUNT:N:FROM_ID"
@@ -758,7 +791,7 @@ func send_election_heartbeat():
 	var data = PackedByteArray()
 	data.append_array(heartbeat_msg.to_utf8_buffer())
 
-	var result = zenoh_peer.put_packet(data)
+	var result = zenoh_peer.put_packet(data, 1)
 	print("Sent election heartbeat: " + heartbeat_msg + " (current election_id: " + str(election_id) + ")")
 	if result != 0:
 		print("⚠️ Election heartbeat send failed, but continuing")
@@ -773,8 +806,8 @@ func _on_election_poll():
 			_election_transition_generating_id()
 
 	# Process election messages and state transitions
-	while zenoh_peer.get_available_packet_count() > 0:
-		var data = zenoh_peer.get_packet()
+	while zenoh_peer.get_available_packet_count(1) > 0:
+		var data = zenoh_peer.get_packet(1)
 		var msg = data.get_string_from_utf8()
 
 		_process_election_message(msg)
@@ -828,7 +861,7 @@ func _process_election_message(msg: String):
 					var ack_msg = "VICTORY_ACK:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid())
 					var data = PackedByteArray()
 					data.append_array(ack_msg.to_utf8_buffer())
-					zenoh_peer.put_packet(data)
+					zenoh_peer.put_packet(data, 1)
 					print("✅ Sent acknowledgment: " + ack_msg)
 				# 🏆 COMPLETE election as follower regardless of current state
 				complete_leader_election_as_follower()
@@ -905,7 +938,7 @@ func _election_transition_broadcasting():
 	var data = PackedByteArray()
 	data.append_array(heartbeat_msg.to_utf8_buffer())
 
-	var result = zenoh_peer.put_packet(data)
+	var result = zenoh_peer.put_packet(data, 1)
 	if result == 0:
 		print("✅ Sent election announcement: " + heartbeat_msg)
 		if label:
@@ -980,7 +1013,7 @@ func _election_transition_victory_broadcasting():
 	var data = PackedByteArray()
 	data.append_array(victory_msg.to_utf8_buffer())
 
-	var result = zenoh_peer.put_packet(data)
+	var result = zenoh_peer.put_packet(data, 1)
 	if result == 0:
 		print("🌟 Victory broadcast sent: " + victory_msg)
 		if label:
@@ -1015,7 +1048,7 @@ func signal_final_election():
 	var data = PackedByteArray()
 	data.append_array(signal_msg.to_utf8_buffer())
 
-	zenoh_peer.put_packet(data)
+	zenoh_peer.put_packet(data, 1)
 	print("Sent final election signal: " + signal_msg)
 
 func _on_election_timeout():
@@ -1142,7 +1175,7 @@ func broadcast_leader_victory():
 	var data = PackedByteArray()
 	data.append_array(victory_msg.to_utf8_buffer())
 
-	zenoh_peer.put_packet(data)
+	zenoh_peer.put_packet(data, 1)
 	print("🌟 Broadcasting BULLY VICTORY: '" + victory_msg + "' - All other instances should become followers")
 
 func stop_broadcasting_hearts():
@@ -1159,6 +1192,16 @@ func _on_hlc_request_pressed():
 		print("✅ HLC timestamp request sent to worker thread")
 	else:
 		print("❌ Failed to send HLC timestamp request")
+
+func get_current_hlc_timestamp() -> int:
+	# 🔥 Get current HLC timestamp from Zenoh session for turn validation
+	# Uses system time + process ID for distributed coordination (same as Rust implementation)
+	var process_id = OS.get_process_id()
+	var system_time_nanos = int(Time.get_unix_time_from_system() * 1000000000)
+	var hlc_timestamp = (process_id * 1000000000) + system_time_nanos
+
+	print("⏱️ Generated HLC timestamp: " + str(hlc_timestamp))
+	return hlc_timestamp
 
 func _safe_free_timer(old_timer: Timer):
 	# Safely free the timer after the current frame to avoid locking issues

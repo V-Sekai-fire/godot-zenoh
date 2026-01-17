@@ -466,6 +466,8 @@ impl ZenohMultiplayerPeer {
                 if let Some(packet) = queue.pop_front() {
                     // Store sender peer ID for get_packet_peer()
                     self.current_packet_peer = packet.from_peer as i32;
+                    // Update current channel so get_packet_channel() returns the correct channel
+                    self.current_channel = priority;
 
                     godot_print!(
                         "DEBUG: Retrieved packet from channel {} (size: {}, from peer: {})",

@@ -194,68 +194,38 @@ impl ZenohSession {
     }
 
     /// HOL BLOCKING PREVENTION: Setup publisher/subscriber for virtual channel
-    pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let game_id = &self.game_id;
         let packet_queues = Arc::clone(&self.packet_queues);
         let peer_id = self.peer_id;
-
         let topic: &'static str = Box::leak(
             format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
         );
 
-        // Lazy initialization of publisher
-        {
-            let mut publishers = self.publishers.lock().unwrap();
-            if publishers.get(&channel).is_none() {
-                let session = Arc::clone(&self.session);
-                let publisher_result = session.declare_publisher(topic).await;
-                match publisher_result {
-                    Ok(publisher) => {
-                        publishers.insert(channel, publisher);
-                    }
-                    Err(e) => {
-                        return Err(format!("Failed to create publisher: {:?}", e).into());
-                    }
-                }
-            }
+        // Setup publisher if not exists
+        if !self.publishers.lock().unwrap().contains_key(&channel) {
+            let publisher = self.session.declare_publisher(topic).await?;
+            self.publishers.lock().unwrap().insert(channel, publisher);
+            godot_print!("Zenoh publisher ready for channel {}", channel);
         }
 
-        // Lazy initialization of subscriber with HOL processing
-        {
-            let mut subscribers = self.subscribers.lock().unwrap();
-            if subscribers.get(&channel).is_none() {
-                let session = Arc::clone(&self.session);
-                let packet_queues = packet_queues.clone();
+        // Setup subscriber if not exists
+        if !self.subscribers.lock().unwrap().contains_key(&channel) {
+            let subscriber = self
+                .session
+                .declare_subscriber(topic)
+                .callback(move |sample| {
+                    // HOL BLOCKING PREVENTION: Extract sender peer ID from header (first 8 bytes)
+                    let payload_bytes = sample.payload().to_bytes();
+                    let full_data: Vec<u8> = payload_bytes.to_vec();
 
-                let subscriber_result = session.declare_subscriber(topic)
-                    .callback(move |sample| {
-                        // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
-                        // Zenoh sends to ALL subscribers including sender - filter self-messages at network level
-                        // Zenoh automatically provides HLC timestamp for causal ordering
+                    if full_data.len() >= 8 {
+                        let sender_peer_id = i64::from_le_bytes(
+                            full_data[0..8].try_into().unwrap(),
+                        );
 
-                        // Extract Zenoh's automatic HLC timestamp
-                        if let Some(timestamp) = sample.timestamp() {
-                            let seconds = timestamp.get_time().as_secs();
-                            let fraction_and_counter = timestamp.get_time().subsec_nanos();
-
-                            godot_print!(
-                                "🕐 Zenoh HLC Timestamp: Seconds:{}, Subsec:{}, Router:{}",
-                                seconds,
-                                fraction_and_counter,
-                                timestamp.get_id()
-                            );
-                        }
-
-                        let payload_bytes = sample.payload().to_bytes();
-                        let full_data: Vec<u8> = payload_bytes.to_vec();
-
-                        // Parse header: first 8 bytes are sender peer ID (i64)
-                        if full_data.len() < 8 {
-                            return; // Skip malformed packets
-                        }
-
-                        let sender_peer_id = i64::from_le_bytes(full_data[0..8].try_into().unwrap());
-                        let actual_data = &full_data[8..];
+                        // Extract actual packet data (skip header)
+                        let packet_data = &full_data[8..];
 
                         // BLOCK SELF-MESSAGES: Don't receive packets we sent during pub/sub delivery
                         // This prevents the "send message → immediately receive it back" loop
@@ -264,24 +234,32 @@ impl ZenohSession {
                             return;
                         }
 
+                        // Create packet with sender info
                         let packet = Packet {
-                            data: actual_data.to_vec(),
+                            data: packet_data.to_vec(),
                             from_peer: sender_peer_id,
                         };
 
+                        // Queue packet for HOL processing
                         let mut queues = packet_queues.lock().unwrap();
-                        queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
-                    })
-                    .await;
-                match subscriber_result {
-                    Ok(subscriber) => {
-                        subscribers.insert(channel, subscriber);
+                        queues
+                            .entry(channel)
+                            .or_insert_with(VecDeque::new)
+                            .push_back(packet);
+
+                        godot_print!(
+                            "DEBUG: Received Zenoh packet on channel {} from peer {} (size: {})",
+                            channel,
+                            sender_peer_id,
+                            packet_data.len()
+                        );
+                    } else {
+                        godot_error!("Received malformed Zenoh packet - no peer ID header");
                     }
-                    Err(e) => {
-                        return Err(format!("Failed to create subscriber: {:?}", e).into());
-                    }
-                }
-            }
+                })
+                .await?;
+            self.subscribers.lock().unwrap().insert(channel, subscriber);
+            godot_print!("Zenoh subscriber ready for channel {}", channel);
         }
 
         Ok(())
@@ -297,19 +275,10 @@ impl ZenohSession {
         self.session.zid().to_string()
     }
 
-    /// Get Hybrid Logical Clock timestamp from Zenoh session
+    /// Get HLC timestamp from Zenoh session
     pub fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // Zenoh provides HLC (Hybrid Logical Clock) through session internals
-        // We'll use session info as HLC reference for distributed coordination
-        godot_print!("Requesting HLC timestamp from Zenoh session...");
-
-        // Get session information (synchronous call)
-        let session_info = self.session.info();
-
         // Extract HLC-like timestamp using system time and process ID for distributed coordination
         let hlc_timestamp = format!("HLC:PID{}:TIME{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
-
-        godot_print!("Zenoh HLC timestamp: {}", hlc_timestamp);
         Ok(hlc_timestamp)
     }
 
