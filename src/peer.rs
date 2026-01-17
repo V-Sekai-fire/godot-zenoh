@@ -653,6 +653,7 @@ impl ZenohMultiplayerPeer {
                     ZenohEvent::ClientConnected { zid, peer_id } => {
                         self.connection_status = 2; // CONNECTED
                         self.unique_id = peer_id;
+                        self.zid = GString::from(zid.as_str());
                         godot_print!("✅ CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
                     },
                     ZenohEvent::ConnectionFailed { error } => {
@@ -728,5 +729,10 @@ impl ZenohMultiplayerPeer {
         godot_print!("ZenohMultiplayerPeer connection closed");
         // Clear all packet queues
         self.packet_queues.lock().unwrap().clear();
+    }
+
+    #[func]
+    fn disconnect(&mut self) {
+        self.close();
     }
 }
