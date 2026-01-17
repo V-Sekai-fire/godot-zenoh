@@ -20,15 +20,15 @@ var countdown_timer: Timer
 
 # BULLETIN-BOARD ALGORITHM STATE (HLC-based state machine coordination!)
 enum ElectionState {
-    DISCONNECTED,           # Initial state - not started
-    WAITING_CONNECTIONS,    # Connecting to Zenoh network
-    GENERATING_ID,          # Requesting HLC timestamp for election
-    BROADCASTING_HEARTBEATS,# Broadcasting HLC election ID
-    COLLECTING_PEERS,       # Collecting all peer heartbeats
-    DECIDING_LEADER,        # Running bully algorithm
-    VICTORY_BROADCASTING,   # I won - announcing victory
-    VICTORY_LISTENING,      # Waiting for victory/defeat messages
-    FINALIZED               # Election complete - leader/follower set
+	DISCONNECTED,           # Initial state - not started
+	WAITING_CONNECTIONS,    # Connecting to Zenoh network
+	GENERATING_ID,          # Requesting HLC timestamp for election
+	BROADCASTING_HEARTBEATS,# Broadcasting HLC election ID
+	COLLECTING_PEERS,       # Collecting all peer heartbeats
+	DECIDING_LEADER,        # Running bully algorithm
+	VICTORY_BROADCASTING,   # I won - announcing victory
+	VICTORY_LISTENING,      # Waiting for victory/defeat messages
+	FINALIZED               # Election complete - leader/follower set
 }
 
 var election_state: ElectionState = ElectionState.DISCONNECTED
@@ -56,12 +56,7 @@ const STATE_LEADER_ELECTION = 7  # New state for automatic leader election
 # Connection state machine variables
 var connection_state: int = STATE_DISCONNECTED
 
-# MERKLE HASH STATE TRACKING - for detecting peer state divergence
-var received_messages_log: Array = []  # Messages received from peers
-var response_messages_log: Array = []  # Messages sent in response
-var state_hash_history: Array = []     # Hash of local state at each message
-var hash_context = HashingContext.new()  # For cryptographically secure SHA-256 state hashing
-var hash_divergence_count: int = 0     # How many times state diverged
+# CLEANED: Removed Merkle hash state tracking for simpler implementation
 
 func _ready():
 	print("Pong Test Starting...")
@@ -109,7 +104,7 @@ func setup_ui():
 
 	# Features info
 	var info = Label.new()
-	info.text = "Features: Leader Election • Merkle State Hashing • HOL Blocking • Zero-Timer Architecture"
+	info.text = "Features: Leader Election • HOL Blocking • Zero-Timer Architecture"
 	info.modulate = Color.LIGHT_BLUE
 	vbox.add_child(info)
 
@@ -140,13 +135,6 @@ func setup_ui():
 	peer_label.name = "peer_info"
 	peer_label.text = "Peer ID: Not connected | Role: Unknown | State: " + get_state_text(connection_state)
 	vbox.add_child(peer_label)
-
-	# Hash divergence counter
-	var hash_label = Label.new()
-	hash_label.name = "hash_status"
-	hash_label.text = "State Divergences: 0 | Last Hash Match: Unknown"
-	hash_label.modulate = Color.LIGHT_GRAY
-	vbox.add_child(hash_label)
 
 	# Send button
 	button = Button.new()
@@ -278,30 +266,18 @@ func _on_send_pressed():
 		button.text = "Send " + str(countdown_number) + " to Other Player"
 
 func _send_count():
-	# Compute current state hash and update history
-	var current_hash = compute_state_hash()
-	state_hash_history.append(current_hash)
-
-	# Send message with Merkle hash: "COUNT:N:FROM_ID:HASH"
-	var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id()) + ":" + current_hash
+	# Send simple countdown message (Merkle hash tracking removed)
+	var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id())
 	var data = PackedByteArray()
 	data.append_array(message.to_utf8_buffer())
 
-	# Record this as a sent response
-	record_response_message(message, 0)  # 0 means broadcast
-
-	# Send immediately - Rust extension handles queuing/publisher readiness
-	# No polling loops, only event-driven state machines
+	# Send immediately - no hash tracking
 	var result = zenoh_peer.put_packet(data)
 
-	print("Player " + str(zenoh_peer.get_unique_id()) + " queued " + message + " (state machine will publish when ready)")
-	print("📋 MERKLE STATE HASH: " + current_hash + " (state divergence tracking)")
+	print("Player " + str(zenoh_peer.get_unique_id()) + " sent: " + message)
 
 	if label:
 		label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
-
-	# If send failed, the Rust side will handle queuing and eventual retry through state machine
-	# No GDscript polling - pure event-driven architecture
 
 func _on_countdown_tick():
 	# Automatic countdown disabled - only send when ack received
@@ -332,44 +308,22 @@ func _on_poll_timeout():
 		var data = zenoh_peer.get_packet()
 		var data_string = data.get_string_from_utf8()
 
-		# Handle countdown message with Merkle hash: "COUNT:N:FROM_ID:HASH"
+			# Handle simple countdown message: "COUNT:N:FROM_ID"
 		if data_string.begins_with("COUNT:"):
 			var parts = data_string.split(":")
 			var count = -1
 			var from_player_id = -1
-			var received_hash = ""
 
-			if parts.size() >= 4:  # New format with hash
-				count = int(parts[1])
-				from_player_id = int(parts[2])
-				received_hash = parts[3]
-				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (Merkle hash: " + received_hash + ")")
-
-				# MERKLE HASH COMPARISON: Check for state divergence
-				record_received_message(data_string, from_player_id)
-				var local_hash = compute_state_hash()
-				if received_hash != local_hash:
-					hash_divergence_count += 1
-					print("🚨 STATE DIVERGENCE DETECTED #" + str(hash_divergence_count) + "!")
-					print("   Remote hash: " + received_hash)
-					print("   Local hash:  " + local_hash)
-					if label:
-						label.text = "⚠️ STATE DIVERGED (hash mismatch)"
-				else:
-					print("✅ Merkle hash consensus maintained")
-
-			elif parts.size() >= 3:  # Old format without hash
+			if parts.size() >= 3:  # Simple format without hash
 				count = int(parts[1])
 				from_player_id = int(parts[2])
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id))
-				record_received_message(data_string, from_player_id)
 			else:
 				# Fallback for old format
 				var count_str = data_string.substr(6)
 				count = int(count_str)
 				from_player_id = get_other_player_id()
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (legacy format)")
-				record_received_message(data_string, from_player_id)
 
 			last_received_count = count
 
@@ -384,10 +338,6 @@ func _on_poll_timeout():
 				var args = OS.get_cmdline_args()
 				if args.has("--client") and count <= 1:  # Exit after complete minimal exchange
 					print("Client test successful - completed packet exchange!")
-					if hash_divergence_count == 0:
-						print("🎉 Perfect! Zero state divergences detected")
-					else:
-						print("⚠️ Warning: " + str(hash_divergence_count) + " state divergences occurred")
 					get_tree().quit()
 
 				# Wait 1 second before responding (doesn't block the polling)
@@ -435,20 +385,7 @@ func update_peer_info():
 
 		peer_info_node.text = "Peer ID: " + str(my_id) + " | Role: " + role + " | State: " + get_state_text(connection_state) + " | ZID: " + zid
 
-func update_hash_status():
-	var hash_node = find_child("hash_status")
-	if hash_node:
-		var last_match = "Unknown"
-		if state_hash_history.size() >= 2:
-			var last_remote = state_hash_history[-2] if state_hash_history.size() >= 2 else ""
-			var last_local = state_hash_history[-1]
-			if last_remote == last_local:
-				last_match = "✅ Match"
-			else:
-				last_match = "🚨 Diverged"
 
-		hash_node.text = "State Divergences: " + str(hash_divergence_count) + " | Last Hash Match: " + last_match
-		hash_node.modulate = Color.RED if hash_divergence_count > 0 else Color.LIGHT_GREEN
 
 func get_state_text(state: int) -> String:
 	match state:
@@ -865,48 +802,7 @@ func stop_broadcasting_hearts():
 	print("🛑 Stopping election heartbeat broadcasts - election is over")
 	# Could kill the polling timer here, but the leader might still need it
 
-# MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
-func compute_state_hash() -> String:
-	# Create state object representing SHARED game state (exclude identity for consensus)
-	var state = {
-		"countdown": countdown_number,
-		"connection_state": connection_state,
-		"last_received": last_received_count,
-		"is_counting_DOWN": str(is_counting_down),  # Convert bool to string for hashing
-		"divergences_found": hash_divergence_count,
-		# Recent message logs (chronological order) - core game state history
-		"received_recent": received_messages_log.slice(max(0, received_messages_log.size()-10)),
-		"response_recent": response_messages_log.slice(max(0, response_messages_log.size()-10))
-	}
 
-	# Convert state to JSON string for consistent hashing
-	var state_json = JSON.stringify(state)
-
-	# Use Godot's HashingContext for cryptographically secure SHA-256
-	hash_context.start(HashingContext.HashType.HASH_SHA256)
-	hash_context.update(state_json.to_utf8_buffer())
-	var hash_bytes = hash_context.finish()
-
-	# Convert to hex string for consistent representation
-	return hash_bytes.hex_encode()
-
-func record_received_message(message: String, from_id: int):
-	# Track received messages for state computation
-	var record = {
-		"msg": message,
-		"from": from_id,
-		"time": zenoh_peer.request_hlc_timestamp()
-	}
-	received_messages_log.append(record)
-
-func record_response_message(message: String, to_id: int):
-	# Track sent responses for state computation
-	var record = {
-		"msg": message,
-		"to": to_id,
-		"time": zenoh_peer.request_hlc_timestamp()
-	}
-	response_messages_log.append(record)
 
 func _on_hlc_request_pressed():
 	print("🎯 Requesting HLC timestamp from Zenoh session...")
