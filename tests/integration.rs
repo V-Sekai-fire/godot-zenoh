@@ -236,7 +236,7 @@ mod tic_tac_toe_state_machine_tests {
 
         #[derive(Debug)]
         struct BarrierState {
-            #[allow(unused_assignments)] // Field used for validation but not directly accessed
+            #[allow(dead_code)] // Field used for constructor validation but not directly accessed
             total_participants: i32,
             victory_acknowledgments: i32,
             expected_acknowledgments: i32,
