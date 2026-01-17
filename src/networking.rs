@@ -4,7 +4,7 @@ use godot::prelude::*;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 // ZBuf import will be added when zenoh 1.7.2 module structure is known
 // For now using Vec<u8> - will replace with native ZBuf once located
 use zenoh::pubsub::Publisher;
@@ -94,7 +94,10 @@ impl ZenohSession {
 
         Ok(ZenohSession {
             session,
-            runtime: Runtime::new()?,
+            runtime: Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
@@ -160,7 +163,10 @@ impl ZenohSession {
 
         Ok(ZenohSession {
             session,
-            runtime: Runtime::new()?,
+            runtime: Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
@@ -262,6 +268,10 @@ impl ZenohSession {
                             let topic_str = sample.key_expr().as_str();
                             let hol_priority = channel; // Extract from topic or use channel mapping
 
+                            godot_print!("📥 HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
+                                       topic_str, hol_priority, sample.payload().len());
+                            godot_print!("📥 Packet content preview: {:?}", &data[..(std::cmp::min(16, data.len()))]);
+
                             let packet = Packet {
                                 data,
                             };
@@ -269,8 +279,7 @@ impl ZenohSession {
                             let mut queues = packet_queues.lock().unwrap();
                             queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
 
-                            godot_print!("📥 HOL PREVENTION: Received packet on topic {} (priority: {}, size: {})",
-                                       topic_str, hol_priority, sample.payload().len());
+                            godot_print!("📥 Packet queued in HOL channel {}", hol_priority);
                         })
                         .await
                 });
