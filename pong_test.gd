@@ -777,11 +777,16 @@ func _process_election_message(msg: String):
 		restart_election_with_real_id()
 
 func _check_if_all_peers_collected():
-	# If we have at least one peer and we've been collecting for a bit, proceed to decide
-	# In a real implementation, we'd know the expected number of participants
-	if collected_peer_ids.size() >= 2:  # Assuming we expect at least 3 total
-		print("Collected enough peer announcements - proceeding to election decision")
-		_election_transition_deciding_leader()
+	# MESSAGE-DRIVEN QUORUM: Pure state machine - no waiting, only message responses
+	# This requires ALL expected peers before state transition (pure coordination)
+	var expected_total_participants = 3  # Known for current test
+	var required_peer_announcements = expected_total_participants - 1  # Minus self
+
+	if collected_peer_ids.size() >= required_peer_announcements:
+		print("🔄 MESSAGE-DRIVEN TRANSITION: Quorum achieved with " + str(collected_peer_ids.size()) + "/" + str(required_peer_announcements) + " peer announcements")
+		print("✅ PURE STATE MACHINE: Transitioning to leader decision phase")
+		_election_transition_deciding_leader()  # QUEUE-DRIVEN: Called after each message receipt
+	# NO WAITING: State machine stays in COLLECTING_PEERS until condition met by message events
 
 # STATE MACHINE TRANSITION FUNCTIONS
 func _election_transition_generating_id():
@@ -835,26 +840,16 @@ func _election_transition_broadcasting():
 
 func _election_transition_collecting_peers():
 	election_state = ElectionState.COLLECTING_PEERS
-	print("🔗 Election State: COLLECTING_PEERS")
+	print("🔗 Election State: COLLECTING_PEERS (PURE MESSAGE-DRIVEN)")
+	print("🚫 NO TIMEOUTS: State machine waits for quorum via message queue events only")
 
 	if label:
-		label.text = "ELECTING LEADER: Collecting peer announcements"
+		label.text = "ELECTING LEADER: Awaiting quorum (message-driven)"
+	# NO TIMER: Pure state machine - waits for _check_if_all_peers_collected() to trigger transition
 
-	# Set a grace period to collect peer announcements
-	election_timer = Timer.new()
-	election_timer.one_shot = true
-	election_timer.wait_time = 1.0  # ⚡ FAST HEATBEAT: 1 second to collect peers
-	election_timer.connect("timeout", Callable(self, "_on_collecting_timeout"))
-	add_child(election_timer)
-	election_timer.start()
-
-func _on_collecting_timeout():
-	print("Collection timeout - proceeding with available peers")
-	if collected_peer_ids.size() > 0:
-		_election_transition_deciding_leader()
-	else:
-		print("No peer announcements collected - waiting longer")
-		# Could extend collection time here
+# FUNCTION REMOVED: No timeouts in pure message-driven state machine
+# All state transitions happen via _check_if_all_peers_collected() being called
+# after each message receipt when quorum requirements are met
 
 func _election_transition_deciding_leader():
 	election_state = ElectionState.DECIDING_LEADER
