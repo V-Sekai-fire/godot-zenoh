@@ -81,6 +81,21 @@ impl ZenohActor {
                         let zid = s.get_zid();
                         let peer_id = s.get_peer_id();
                         self.session = Some(s);
+
+                        // Setup all 256 virtual channels for the client
+                        if let Some(sess) = &mut self.session {
+                            for channel in 0..=255 {
+                                let result = sess.setup_channel(channel);
+                                if result != Error::OK {
+                                    godot_error!("Failed to setup channel {}: {:?}", channel, result);
+                                    return Some(ZenohEvent::ConnectionFailed {
+                                        error: format!("Channel setup failed for {}", channel)
+                                    });
+                                }
+                            }
+                            godot_print!("Client created with 256 virtual channels");
+                        }
+
                         Some(ZenohEvent::ClientConnected { zid, peer_id })
                     },
                     Err(e) => Some(ZenohEvent::ConnectionFailed { error: e.to_string() }),
@@ -256,6 +271,9 @@ pub struct ZenohMultiplayerPeer {
     current_channel: i32,
     max_packet_size: i32,
 
+    // Synchronization data for late joiners
+    sync_data: Arc<Mutex<Option<PackedByteArray>>>,
+
     // Store ZID for get_zid() method
     zid: GodotString,
 
@@ -315,6 +333,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             current_channel: 0,
             max_packet_size: 1472, // UDP MTU - Zenoh overhead
             zid: GString::from(""),
+            sync_data: Arc::new(Mutex::new(None)),
             base: _base,
         }
     }
@@ -352,13 +371,14 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn set_transfer_mode(&mut self, mode: TransferMode) {
+        // Zenoh is a pub/sub system without guaranteed delivery, so treat RELIABLE as UNRELIABLE_ORDERED
         self.transfer_mode = match mode {
             TransferMode::UNRELIABLE => 0,
             TransferMode::UNRELIABLE_ORDERED => 1,
-            TransferMode::RELIABLE => 2,
-            _ => 0, // Default to UNRELIABLE for unknown modes
+            TransferMode::RELIABLE => 1, // Treat RELIABLE as UNRELIABLE_ORDERED since Zenoh doesn't guarantee delivery
+            _ => 0,
         };
-        godot_print!("Transfer mode set to: {}", self.transfer_mode);
+        godot_print!("Transfer mode set to: {} (Zenoh pub/sub - best effort delivery)", self.transfer_mode);
     }
 
     fn get_transfer_mode(&self) -> TransferMode {
@@ -628,6 +648,9 @@ impl ZenohMultiplayerPeer {
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
         godot_print!("Creating Zenoh client asynchronously on {}:{}", address, port);
 
+        // Close any existing connection first
+        self.close();
+
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
@@ -673,6 +696,9 @@ impl ZenohMultiplayerPeer {
     #[func]
     fn create_server(&mut self, port: i32, _max_clients: i32) -> Error {
         godot_print!("Creating Zenoh server asynchronously on port {}", port);
+
+        // Close any existing connection first
+        self.close();
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
@@ -734,5 +760,43 @@ impl ZenohMultiplayerPeer {
     #[func]
     fn disconnect(&mut self) {
         self.close();
+    }
+
+    #[func]
+    fn get_server_address(&self) -> String {
+        if self.connection_status == 2 && self.unique_id == 1 {
+            "localhost:7447".to_string() // Default server address
+        } else {
+            "".to_string()
+        }
+    }
+
+    #[func]
+    fn get_connected_clients_count(&self) -> i32 {
+        // For now, return 0 as we don't track individual clients
+        // In a full implementation, this would track connected peers
+        0
+    }
+
+    #[func]
+    fn get_network_info(&self) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        dict.set("status", self.connection_status());
+        dict.set("unique_id", self.get_unique_id());
+        dict.set("zid", self.get_zid());
+        dict.set("is_server", self.is_server());
+        dict.set("packet_count", self.get_available_packet_count());
+        dict.set("server_address", self.get_server_address());
+        dict.set("connected_clients", self.get_connected_clients_count());
+        dict
+    }
+
+    #[func]
+    fn get_channel_info(&self, channel: i32) -> VarDictionary {
+        let mut dict = VarDictionary::new();
+        dict.set("channel", channel);
+        dict.set("packet_count", self.get_channel_packet_count(channel));
+        dict.set("priority", if channel == 0 { "highest" } else if channel <= 10 { "high" } else if channel <= 100 { "normal" } else { "low" });
+        dict
     }
 }

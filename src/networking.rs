@@ -164,12 +164,18 @@ impl ZenohSession {
                 return Error::FAILED;
             }
 
-            godot_print!(
-                "📤 Packet sent via Zenoh HOL channel {} (size: {})",
-                channel,
-                p_buffer.len()
-            );
-            return Error::OK;
+            // Only log sent packets occasionally to reduce spam
+            static mut SEND_COUNTER: u32 = 0;
+            unsafe {
+                SEND_COUNTER += 1;
+                if SEND_COUNTER % 20 == 0 {  // Log every 20th packet
+                    godot_print!(
+                        "📤 Packet sent via Zenoh HOL channel {} (size: {})",
+                        channel,
+                        p_buffer.len()
+                    );
+                }
+            }
         }
 
         godot_print!(
@@ -186,11 +192,14 @@ impl ZenohSession {
         let packet_queues = Arc::clone(&self.packet_queues);
         let peer_id = self.peer_id;
 
-        godot_print!(
-            "🎛️ Setting up Zenoh HOL virtual channel {} for peer {}",
-            channel,
-            peer_id
-        );
+        // Only log for channel 0 and every 50th channel to reduce spam
+        if channel == 0 || channel % 50 == 0 {
+            godot_print!(
+                "🎛️ Setting up Zenoh HOL virtual channel {} for peer {}",
+                channel,
+                peer_id
+            );
+        }
 
         // Lazy initialization of publisher
         {
@@ -207,7 +216,10 @@ impl ZenohSession {
                 match publisher_result {
                     Ok(publisher) => {
                         publishers.insert(channel, publisher);
-                        godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
+                        // Only log success for channel 0 and every 50th channel
+                        if channel == 0 || channel % 50 == 0 {
+                            godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
+                        }
                     }
                     Err(e) => {
                         godot_error!(
@@ -240,9 +252,15 @@ impl ZenohSession {
                             let topic_str = sample.key_expr().as_str();
                             let hol_priority = channel; // Extract from topic or use channel mapping
 
-                            godot_print!("📥 HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
-                                       topic_str, hol_priority, sample.payload().len());
-                            godot_print!("📥 Packet content preview: {:?}", &data[..(std::cmp::min(16, data.len()))]);
+                            // Reduce logging for received packets - only log occasionally
+                            static mut LOG_COUNTER: u32 = 0;
+                            unsafe {
+                                LOG_COUNTER += 1;
+                                if LOG_COUNTER % 5 == 0 {  // Log every 5th packet for debugging
+                                    godot_print!("📥 HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
+                                               topic_str, hol_priority, sample.payload().len());
+                                }
+                            }
 
                             let packet = Packet {
                                 data,
@@ -251,7 +269,7 @@ impl ZenohSession {
                             let mut queues = packet_queues.lock().unwrap();
                             queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
 
-                            godot_print!("📥 Packet queued in HOL channel {}", hol_priority);
+                            // Remove per-packet queuing log to reduce spam
                         })
                         .await
                 });
@@ -259,7 +277,10 @@ impl ZenohSession {
                 match subscriber_result {
                     Ok(subscriber) => {
                         subscribers.insert(channel, subscriber);
-                        godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
+                        // Only log success for channel 0 and every 50th channel
+                        if channel == 0 || channel % 50 == 0 {
+                            godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
+                        }
                     }
                     Err(e) => {
                         godot_error!(
