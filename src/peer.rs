@@ -132,11 +132,11 @@ impl ZenohAsyncBridge {
         // Try to send command to queue
         match self.command_tx.try_send(cmd) {
             Ok(()) => {
-                godot_print!("✅ Command queued successfully");
+                godot_print!("Command queued successfully");
                 Ok(())
             }
             Err(e) => {
-                godot_error!("❌ Failed to queue command: {:?}", e);
+                godot_error!("Failed to queue command: {:?}", e);
                 Err(e)
             }
         }
@@ -147,7 +147,7 @@ impl ZenohAsyncBridge {
         let mut events = Vec::new();
         // Process all pending commands
         while let Ok(cmd) = self.command_rx.try_recv() {
-            godot_print!("🔄 Processing command: {:?}", cmd);
+            godot_print!("Processing command: {:?}", cmd);
             let event = futures::executor::block_on(async {
                 self.actor.handle_command(cmd).await
             });
@@ -316,7 +316,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         self.connection_status = 2; // CONNECTED
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
-                        godot_print!("✅ CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
+                        godot_print!("CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
                         
                         // Emit connected_to_server signal for clients
                         self.base_mut().emit_signal("connected_to_server", &[]);
@@ -325,11 +325,11 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         self.connection_status = 2; // CONNECTED
                         self.unique_id = 1; // Server is peer 1
                         self.zid = GString::from(zid.as_str());
-                        godot_print!("✅ SERVER CREATED: ZID: {}, Peer ID: {}", zid, self.unique_id);
+                        godot_print!("SERVER CREATED: ZID: {}, Peer ID: {}", zid, self.unique_id);
                     },
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
-                        godot_error!("❌ CONNECTION FAILED: {}", error);
+                        godot_error!("CONNECTION FAILED: {}", error);
                         
                         // Emit connection_failed signal
                         self.base_mut().emit_signal("connection_failed", &[]);
@@ -418,19 +418,19 @@ impl ZenohMultiplayerPeer {
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
-                    godot_print!("📦 DEBUG: Retrieved packet from channel {} (size: {})", priority, packet.data.len());
+                    godot_print!("DEBUG: Retrieved packet from channel {} (size: {})", priority, packet.data.len());
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
                 }
             }
         }
-        godot_print!("📦 DEBUG: No packets available in any queue");
+        godot_print!("DEBUG: No packets available in any queue");
         PackedByteArray::new()
     }
 
     #[func]
     fn put_packet(&mut self, p_buffer: PackedByteArray) -> Error {
-        godot_print!("🔍 DEBUG: put_packet called with {} bytes on channel {}", p_buffer.len(), self.current_channel);
+        godot_print!("DEBUG: put_packet called with {} bytes on channel {}", p_buffer.len(), self.current_channel);
         self.put_packet_on_channel(p_buffer, self.current_channel)
     }
 
@@ -494,7 +494,7 @@ impl ZenohMultiplayerPeer {
 
             // DEMONSTRATION: Flood high channels (200-220) with packets
             // Then add one packet to channel 0 - it should be processed first
-            godot_print!("🎯 HOL BLOCKING PREVENTION DEMO:");
+            godot_print!("HOL BLOCKING PREVENTION DEMO:");
             godot_print!("Flooding high channels with packets...");
 
             // Add many packets to high-number channels (should be blocked)
@@ -528,15 +528,15 @@ impl ZenohMultiplayerPeer {
         if result.len() >= 2 {
             let channel_returned = result[0] as i32;
             if channel_returned == 0 {
-                godot_print!("✅ SUCCESS: Channel 0 critical packet processed FIRST!");
-                godot_print!("✅ HOL blocking prevention working correctly");
-                godot_print!("✅ High-channel packets properly blocked by low-channel priority");
+                godot_print!("SUCCESS: Channel 0 critical packet processed FIRST!");
+                godot_print!("HOL blocking prevention working correctly");
+                godot_print!("High-channel packets properly blocked by low-channel priority");
             } else {
                 godot_error!(
-                    "❌ FAILURE: Channel {} returned instead of channel 0",
+                    "FAILURE: Channel {} returned instead of channel 0",
                     channel_returned
                 );
-                godot_error!("❌ HOL blocking prevention NOT working");
+                godot_error!("HOL blocking prevention NOT working");
             }
         }
 
@@ -576,14 +576,14 @@ impl ZenohMultiplayerPeer {
                         self.connection_status = 2; // CONNECTED
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
-                        godot_print!("✅ CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
+                        godot_print!("CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
                         
                         // Emit connected_to_server signal for clients
                         self.base_mut().emit_signal("connected_to_server", &[]);
                     },
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
-                        godot_error!("❌ CLIENT CONNECTION FAILED: {}", error);
+                        godot_error!("CLIENT CONNECTION FAILED: {}", error);
                         
                         // Emit connection_failed signal
                         self.base_mut().emit_signal("connection_failed", &[]);
@@ -628,11 +628,11 @@ impl ZenohMultiplayerPeer {
                         self.connection_status = 2; // CONNECTED
                         self.unique_id = 1; // Server is peer 1
                         self.zid = GString::from(zid.as_str());
-                        godot_print!("✅ SERVER CREATED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, self.unique_id);
+                        godot_print!("SERVER CREATED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, self.unique_id);
                     },
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
-                        godot_error!("❌ SERVER CREATION FAILED: {}", error);
+                        godot_error!("SERVER CREATION FAILED: {}", error);
                         
                         // Emit connection_failed signal
                         self.base_mut().emit_signal("connection_failed", &[]);

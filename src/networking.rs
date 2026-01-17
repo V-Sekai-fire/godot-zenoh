@@ -42,11 +42,11 @@ impl ZenohSession {
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("🎯 Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
+        godot_print!("Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
 
         // Connect to server peer using environment variable (like successful server approach)
         let tcp_endpoint = format!("tcp/{}:{}", address, port);
-        godot_print!("🔌 Zenoh CLIENT connecting to server at: {}", tcp_endpoint);
+        godot_print!("Zenoh CLIENT connecting to server at: {}", tcp_endpoint);
 
         // Set connect endpoint before session creation (critical timing)
         std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
@@ -61,11 +61,11 @@ impl ZenohSession {
         let session = match session_result {
             Ok(sess) => {
                 let zid = sess.zid().to_string();
-                godot_print!("✅ Zenoh CLIENT session created - ZID: {}", zid);
+                godot_print!("Zenoh CLIENT session created - ZID: {}", zid);
                 Arc::new(sess)
             }
             Err(e) => {
-                godot_error!("❌ Zenoh CLIENT session creation failed: {:?}", e);
+                godot_error!("Zenoh CLIENT session creation failed: {:?}", e);
                 return Err(format!("Client session creation failed: {:?}", e).into());
             }
         };
@@ -73,10 +73,10 @@ impl ZenohSession {
         // Don't check liveliness immediately - let the session establish connections naturally
         // The "you are not allowed to wait for liveliness" error suggests the session needs time
         // to establish connections before querying peer information
-        godot_print!("ℹ️ CLIENT session created - connections will establish asynchronously");
+        godot_print!("CLIENT session created - connections will establish asynchronously");
 
         let zid = session.zid().to_string();
-        godot_print!("🌐 Client ZID: {}", zid);
+        godot_print!("Client ZID: {}", zid);
 
         let peer_id = if zid.len() >= 8 {
             let last8 = &zid[zid.len()-8..];
@@ -85,7 +85,7 @@ impl ZenohSession {
             2
         };
 
-        godot_print!("✅ Zenoh CLIENT ready - Peer ID: {}, Game: {}", peer_id, game_id);
+        godot_print!("Zenoh CLIENT ready - Peer ID: {}, Game: {}", peer_id, game_id);
 
         Ok(ZenohSession {
             session,
@@ -108,14 +108,14 @@ impl ZenohSession {
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!(
-            "🎯 Creating Zenoh SERVER (Listens on port {}) - HOL blocking prevention ENABLED",
+            "Creating Zenoh SERVER (Listens on port {}) - HOL blocking prevention ENABLED",
             port
         );
 
         // Server becomes authoritative router using environment variable (like working approach)
         if port > 0 {
             let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
-            godot_print!("🛡️ Zenoh SERVER acting as router at: {}", listen_endpoint);
+            godot_print!("Zenoh SERVER acting as router at: {}", listen_endpoint);
 
             // Set listen endpoint before session creation (critical timing)
             std::env::set_var("ZENOH_LISTEN", listen_endpoint);
@@ -131,17 +131,17 @@ impl ZenohSession {
         let session = match session_result {
             Ok(sess) => {
                 let zid = sess.zid().to_string();
-                godot_print!("✅ Zenoh SERVER router operational - ZID: {}", zid);
+                godot_print!("Zenoh SERVER router operational - ZID: {}", zid);
                 Arc::new(sess)
             }
             Err(e) => {
-                godot_error!("❌ Zenoh SERVER router failed: {:?}", e);
+                godot_error!("Zenoh SERVER router failed: {:?}", e);
                 return Err(format!("Server router failed: {:?}", e).into());
             }
         };
 
         // Server gets fixed peer ID 1 (Godot convention)
-        godot_print!("✅ Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}", game_id);
+        godot_print!("Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}", game_id);
 
         Ok(ZenohSession {
             session,
@@ -176,14 +176,14 @@ impl ZenohSession {
 
             // Debug: Always log sent packets for now
             godot_print!(
-                "📤 DEBUG: Packet sent via Zenoh HOL channel {} (size: {})",
+                "DEBUG: Packet sent via Zenoh HOL channel {} (size: {})",
                 channel,
                 p_buffer.len()
             );
         }
 
         godot_print!(
-            "⚠️ Zenoh publisher not ready for channel {}, queuing locally",
+            "Zenoh publisher not ready for channel {}, queuing locally",
             channel
         );
         self.queue_packet_locally(p_buffer, channel, self.peer_id);
@@ -199,7 +199,7 @@ impl ZenohSession {
         // Only log for channel 0 and every 50th channel to reduce spam
         if channel == 0 || channel % 50 == 0 {
             godot_print!(
-                "🎛️ Setting up Zenoh HOL virtual channel {} for peer {}",
+                "Setting up Zenoh HOL virtual channel {} for peer {}",
                 channel,
                 peer_id
             );
@@ -222,12 +222,12 @@ impl ZenohSession {
                         publishers.insert(channel, publisher);
                         // Only log success for channel 0 and every 50th channel
                         if channel == 0 || channel % 50 == 0 {
-                            godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
+                            godot_print!("Zenoh publisher created for HOL channel {}", channel);
                         }
                     }
                     Err(e) => {
                         godot_error!(
-                            "❌ Failed to create Zenoh publisher for channel {}: {:?}",
+                            "Failed to create Zenoh publisher for channel {}: {:?}",
                             channel,
                             e
                         );
@@ -257,7 +257,7 @@ impl ZenohSession {
                             let hol_priority = channel; // Extract from topic or use channel mapping
 
                             // Debug: Always log received packets for now
-                            godot_print!("📥 DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
+                            godot_print!("DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
                                    topic_str, hol_priority, sample.payload().len());
 
                             let packet = Packet {
@@ -275,12 +275,12 @@ impl ZenohSession {
                         subscribers.insert(channel, subscriber);
                         // Only log success for channel 0 and every 50th channel
                         if channel == 0 || channel % 50 == 0 {
-                            godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
+                            godot_print!("Zenoh subscriber created for HOL channel {}", channel);
                         }
                     }
                     Err(e) => {
                         godot_error!(
-                            "❌ Failed to create Zenoh subscriber for channel {}: {:?}",
+                            "Failed to create Zenoh subscriber for channel {}: {:?}",
                             channel,
                             e
                         );
