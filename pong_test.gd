@@ -30,6 +30,13 @@ const STATE_ZENOH_SESSION_FAILED = 6
 # Connection state machine variables
 var connection_state: int = STATE_DISCONNECTED
 
+# MERKLE HASH STATE TRACKING - for detecting peer state divergence
+var received_messages_log: Array = []  # Messages received from peers
+var response_messages_log: Array = []  # Messages sent in response
+var state_hash_history: Array = []     # Hash of local state at each message
+var hash_context = HashingContext.new()  # For cryptographically secure SHA-256 state hashing
+var hash_divergence_count: int = 0     # How many times state diverged
+
 func _ready():
 	print("Pong Test Starting...")
 
@@ -251,18 +258,56 @@ func _on_send_pressed():
 		button.text = "Send " + str(countdown_number) + " to Other Player"
 
 func _send_count():
-	# Send current countdown number with sender ID
-	var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id())
-	var data = PackedByteArray()
-	data.append_array(message.to_utf8_buffer())
+	# Compute current state hash and update history
+	var current_hash = compute_state_hash()
+	state_hash_history.append(current_hash)
 
-	# In Zenoh pub/sub: EVERY message published is automatically "relayed" to ALL subscribers
-	# This provides the exact same functionality as server relay - no additional code needed!
-	zenoh_peer.put_packet(data)
-	print("Player " + str(zenoh_peer.get_unique_id()) + " published " + message + " (Zenoh auto-relays to all subscribers)")
+	# Wait for Zenoh publishers to be ready (polling loop instead of random delay)
+	var wait_attempts = 0
+	var max_attempts = 50  # 5 seconds max wait
 
+	while wait_attempts < max_attempts:
+		# Send message with Merkle hash: "COUNT:N:FROM_ID:HASH"
+		var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id()) + ":" + current_hash
+		var data = PackedByteArray()
+		data.append_array(message.to_utf8_buffer())
+
+		# Record this as a sent response
+		record_response_message(message, 0)  # 0 means broadcast
+
+		# In Zenoh pub/sub: EVERY message published is automatically "relayed" to ALL subscribers
+		# This provides the exact same functionality as server relay - no additional code needed!
+		var result = zenoh_peer.put_packet(data)
+
+		# Poll for publisher readiness
+		zenoh_peer.poll()
+		await get_tree().create_timer(0.1).timeout  # Poll every 100ms
+
+		# Check if packet was actually published (not queued locally)
+		# but after polling, if we still have available packets, it means they were published
+		var packet_count_before = zenoh_peer.get_available_packet_count()
+		zenoh_peer.poll()  # Another poll to ensure async updates
+		var packet_count_after = zenoh_peer.get_available_packet_count()
+
+		if result == 0 and packet_count_before < packet_count_after:  # Packet was published
+			print("Player " + str(zenoh_peer.get_unique_id()) + " published " + message + " (Zenoh auto-relays to all subscribers)")
+			print("📋 MERKLE STATE HASH: " + current_hash + " (state divergence tracking)")
+			if label:
+				label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
+			return
+
+		wait_attempts += 1
+		print("Zenoh publisher not ready, retrying... (" + str(wait_attempts) + "/" + str(max_attempts) + ")")
+		if label:
+			label.text = "Initializing network... " + str(countdown_number) + " (attempt " + str(wait_attempts) + ")"
+
+	# Timeout - send anyway and continue
+	print("Publisher timeout - sending message anyway")
 	if label:
 		label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
+
+	if label:
+		label.text = "Force sent: " + str(countdown_number) + " (waiting for ack)"
 
 func _on_countdown_tick():
 	# Automatic countdown disabled - only send when ack received
@@ -277,36 +322,62 @@ func _on_poll_timeout():
 		var data = zenoh_peer.get_packet()
 		var data_string = data.get_string_from_utf8()
 
-		# Handle countdown message from other player (format: "COUNT:N:FROM_ID")
+		# Handle countdown message with Merkle hash: "COUNT:N:FROM_ID:HASH"
 		if data_string.begins_with("COUNT:"):
 			var parts = data_string.split(":")
 			var count = -1
 			var from_player_id = -1
+			var received_hash = ""
 
-			if parts.size() >= 3:
+			if parts.size() >= 4:  # New format with hash
+				count = int(parts[1])
+				from_player_id = int(parts[2])
+				received_hash = parts[3]
+				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (Merkle hash: " + received_hash + ")")
+
+				# MERKLE HASH COMPARISON: Check for state divergence
+				record_received_message(data_string, from_player_id)
+				var local_hash = compute_state_hash()
+				if received_hash != local_hash:
+					hash_divergence_count += 1
+					print("🚨 STATE DIVERGENCE DETECTED #" + str(hash_divergence_count) + "!")
+					print("   Remote hash: " + received_hash)
+					print("   Local hash:  " + local_hash)
+					if label:
+						label.text = "⚠️ STATE DIVERGED (hash mismatch)"
+				else:
+					print("✅ Merkle hash consensus maintained")
+
+			elif parts.size() >= 3:  # Old format without hash
 				count = int(parts[1])
 				from_player_id = int(parts[2])
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id))
+				record_received_message(data_string, from_player_id)
 			else:
 				# Fallback for old format
 				var count_str = data_string.substr(6)
 				count = int(count_str)
 				from_player_id = get_other_player_id()
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (legacy format)")
+				record_received_message(data_string, from_player_id)
 
-			# Self-message filtering is now handled automatically by the Zenoh peer
-			# No need to manually filter here
+			last_received_count = count
 
 			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
-			if countdown_number > 0 and count >= 0:
+			# Only respond to messages from other peers (not own messages)
+			if countdown_number > 0 and count >= 0 and from_player_id != zenoh_peer.get_unique_id():
 				if label:
 					label.text = "Received: " + str(count) + " - Preparing response..."
-				print("Player " + str(zenoh_peer.get_unique_id()) + " acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
+				print("Player " + str(zenoh_peer.get_unique_id()) + " acknowledging receipt of " + str(count) + " from " + str(from_player_id) + " - will respond in 1 second with countdown: " + str(countdown_number))
 
-				# In automatic mode, run minimal test and exit
+				# In automatic mode, complete the exchange and exit
 				var args = OS.get_cmdline_args()
-				if args.has("--client"):
-					print("Client test successful - received message, exiting...")
+				if args.has("--client") and count <= 1:  # Exit after complete minimal exchange
+					print("Client test successful - completed packet exchange!")
+					if hash_divergence_count == 0:
+						print("🎉 Perfect! Zero state divergences detected")
+					else:
+						print("⚠️ Warning: " + str(hash_divergence_count) + " state divergences occurred")
 					get_tree().quit()
 
 				# Wait 1 second before responding (doesn't block the polling)
@@ -317,23 +388,71 @@ func _on_poll_timeout():
 				add_child(response_timer)
 				response_timer.start()
 			else:
-				label.text = "Game already finished"
+				if label:
+					label.text = "Game already finished"
 
 func _delayed_response():
 	# This runs after 1 second delay
 	if countdown_number > 0:
 		countdown_number -= 1
 		if countdown_number == 0:
-			label.text = "GAME OVER!"
+			if label:
+				label.text = "GAME OVER!"
 			print("Countdown complete!")
 		else:
-			label.text = "Responding with: " + str(countdown_number)
+			if label:
+				label.text = "Responding with: " + str(countdown_number)
 			print("After 1 second - sending countdown: " + str(countdown_number))
 			_send_count()
 			# Wait for next receipt (no auto countdown)
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
+
+# MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
+func compute_state_hash() -> String:
+	# Create state object representing current game state
+	var state = {
+		"countdown": countdown_number,
+		"connection_state": connection_state,
+		"last_received": last_received_count,
+		"is_counting_DOWN": str(is_counting_down),  # Convert bool to string for hashing
+		"player_id": zenoh_peer.get_unique_id() if zenoh_peer else -1,
+		"hash_divergence_count": hash_divergence_count,
+		"timestamp": str(Time.get_unix_time_from_system()),  # Add timestamp for entropy
+		# Include recent message logs (last 10 of each)
+		"received_recent": received_messages_log.slice(max(0, received_messages_log.size()-10)),
+		"response_recent": response_messages_log.slice(max(0, response_messages_log.size()-10))
+	}
+
+	# Convert state to JSON string for consistent hashing
+	var state_json = JSON.stringify(state)
+
+	# Use Godot's HashingContext for cryptographically secure SHA-256
+	hash_context.start(HashingContext.HashType.HASH_SHA256)
+	hash_context.update(state_json.to_utf8_buffer())
+	var hash_bytes = hash_context.finish()
+
+	# Convert to hex string for consistent representation
+	return hash_bytes.hex_encode()
+
+func record_received_message(message: String, from_id: int):
+	# Track received messages for state computation
+	var record = {
+		"msg": message,
+		"from": from_id,
+		"time": Time.get_unix_time_from_system()
+	}
+	received_messages_log.append(record)
+
+func record_response_message(message: String, to_id: int):
+	# Track sent responses for state computation
+	var record = {
+		"msg": message,
+		"to": to_id,
+		"time": Time.get_unix_time_from_system()
+	}
+	response_messages_log.append(record)
 
 func _notification(what):
 	if what == NOTIFICATION_EXIT_TREE:

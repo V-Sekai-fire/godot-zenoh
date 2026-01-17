@@ -62,8 +62,7 @@ impl ZenohActor {
                         // Auto-setup all 256 virtual channels for server
                         if let Some(sess) = &mut self.session {
                             for channel in 0..=255 {
-                                let result = sess.setup_channel(channel);
-                                if result != Error::OK {
+                                if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
                                         error: format!("Server channel setup failed for {}", channel),
                                     });
@@ -96,8 +95,7 @@ impl ZenohActor {
                         // Setup all 256 virtual channels for the client
                         if let Some(sess) = &mut self.session {
                             for channel in 0..=255 {
-                                let result = sess.setup_channel(channel);
-                                if result != Error::OK {
+                                if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
                                         error: format!("Client channel setup failed for {}", channel),
                                     });
@@ -183,11 +181,10 @@ impl ZenohAsyncBridge {
                 }
 
                 // Process any pending commands
-                let mut cmds = Vec::new();
-                {
+                let cmds = {
                     let mut queue = command_queue.lock().unwrap();
-                    cmds = std::mem::take(&mut *queue);
-                }
+                    std::mem::take(&mut *queue)
+                };
 
                 for cmd in cmds {
                     // Note: godot_print cannot be used from worker threads

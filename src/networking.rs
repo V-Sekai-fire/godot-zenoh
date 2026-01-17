@@ -4,7 +4,7 @@ use godot::prelude::*;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::{Builder, Runtime};
+
 // ZBuf import will be added when zenoh 1.7.2 module structure is known
 // For now using Vec<u8> - will replace with native ZBuf when api known
 use zenoh::pubsub::Publisher;
@@ -21,8 +21,6 @@ pub struct Packet {
 pub struct ZenohSession {
     /// Zenoh networking session
     session: Arc<zenoh::Session>,
-    /// Async runtime for Zenoh operations
-    runtime: Runtime,
     /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
     /// Subscribers for each channel (lazy initialization)
@@ -94,7 +92,6 @@ impl ZenohSession {
 
         Ok(ZenohSession {
             session,
-            runtime: Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
@@ -143,19 +140,20 @@ impl ZenohSession {
         };
 
         // Server gets fixed peer ID 1 (Godot convention)
+        let peer_id = 1;
         godot_print!(
-            "Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}",
+            "Zenoh SERVER (Authoritative Router) - Peer ID: {}, Game: {}",
+            peer_id,
             game_id
         );
 
         Ok(ZenohSession {
             session,
-            runtime: Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
             game_id,
-            peer_id: 1, // Server is always peer 1
+            peer_id,
         })
     }
 
@@ -196,47 +194,27 @@ impl ZenohSession {
     }
 
     /// HOL BLOCKING PREVENTION: Setup publisher/subscriber for virtual channel
-    pub fn setup_channel(&self, channel: i32) -> Error {
+    pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error>> {
         let game_id = &self.game_id;
         let packet_queues = Arc::clone(&self.packet_queues);
         let peer_id = self.peer_id;
 
-        // Only log for channel 0 and every 50th channel to reduce spam
-        if channel == 0 || channel % 50 == 0 {
-            godot_print!(
-                "Setting up Zenoh HOL virtual channel {} for peer {}",
-                channel,
-                peer_id
-            );
-        }
+        let topic: &'static str = Box::leak(
+            format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
+        );
 
         // Lazy initialization of publisher
         {
             let mut publishers = self.publishers.lock().unwrap();
             if publishers.get(&channel).is_none() {
                 let session = Arc::clone(&self.session);
-                let publisher_result = self.runtime.block_on(async move {
-                    let topic: &'static str = Box::leak(
-                        format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
-                    );
-                    session.declare_publisher(topic).await
-                });
-
+                let publisher_result = session.declare_publisher(topic).await;
                 match publisher_result {
                     Ok(publisher) => {
                         publishers.insert(channel, publisher);
-                        // Only log success for channel 0 and every 50th channel
-                        if channel == 0 || channel % 50 == 0 {
-                            godot_print!("Zenoh publisher created for HOL channel {}", channel);
-                        }
                     }
                     Err(e) => {
-                        godot_error!(
-                            "Failed to create Zenoh publisher for channel {}: {:?}",
-                            channel,
-                            e
-                        );
-                        return Error::FAILED;
+                        return Err(format!("Failed to create publisher: {:?}", e).into());
                     }
                 }
             }
@@ -247,72 +225,48 @@ impl ZenohSession {
             let mut subscribers = self.subscribers.lock().unwrap();
             if subscribers.get(&channel).is_none() {
                 let session = Arc::clone(&self.session);
+                let packet_queues = packet_queues.clone();
 
-                let subscriber_result = self.runtime.block_on(async {
-                    let topic: &'static str = Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
-                    let packet_queues = packet_queues.clone();
+                let subscriber_result = session.declare_subscriber(topic)
+                    .callback(move |sample| {
+                        // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
+                        let payload_bytes = sample.payload().to_bytes();
+                        let full_data: Vec<u8> = payload_bytes.to_vec();
 
-                    session.declare_subscriber(topic)
-                        .callback(move |sample| {
-                            // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
-                            // Use zenoh 1.7.2 payload conversion methods
-                            let payload_bytes = sample.payload().to_bytes();
-                            let full_data: Vec<u8> = payload_bytes.to_vec();
+                        // Parse header: first 8 bytes are sender peer ID (i64)
+                        if full_data.len() < 8 {
+                            return; // Skip malformed packets
+                        }
 
-                            // Parse header: first 8 bytes are sender peer ID (i64)
-                            if full_data.len() < 8 {
-                                godot_error!("Received malformed packet: too short for header");
-                                return;
-                            }
+                        let sender_peer_id = i64::from_le_bytes(full_data[0..8].try_into().unwrap());
+                        let actual_data = &full_data[8..];
 
-                            let sender_peer_id = i64::from_le_bytes(full_data[0..8].try_into().unwrap());
-                            let actual_data = &full_data[8..];
+                        // SELF-MESSAGE FILTERING: Don't process packets from ourselves
+                        if sender_peer_id == peer_id {
+                            return; // Ignore own messages
+                        }
 
-                            // SELF-MESSAGE FILTERING: Don't process packets from ourselves
-                            if sender_peer_id == peer_id {
-                                // This is our own message, ignore it
-                                return;
-                            }
+                        let packet = Packet {
+                            data: actual_data.to_vec(),
+                            from_peer: sender_peer_id,
+                        };
 
-                            let topic_str = sample.key_expr().as_str();
-                            let hol_priority = channel; // Extract from topic or use channel mapping
-
-                            // Debug: Always log received packets for now
-                            godot_print!("DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' from peer {} (channel: {}, size: {})",
-                                   topic_str, sender_peer_id, hol_priority, actual_data.len());
-
-                            let packet = Packet {
-                                data: actual_data.to_vec(),
-                                from_peer: sender_peer_id,
-                            };
-
-                            let mut queues = packet_queues.lock().unwrap();
-                            queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
-                        })
-                        .await
-                });
-
+                        let mut queues = packet_queues.lock().unwrap();
+                        queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
+                    })
+                    .await;
                 match subscriber_result {
                     Ok(subscriber) => {
                         subscribers.insert(channel, subscriber);
-                        // Only log success for channel 0 and every 50th channel
-                        if channel == 0 || channel % 50 == 0 {
-                            godot_print!("Zenoh subscriber created for HOL channel {}", channel);
-                        }
                     }
                     Err(e) => {
-                        godot_error!(
-                            "Failed to create Zenoh subscriber for channel {}: {:?}",
-                            channel,
-                            e
-                        );
-                        return Error::FAILED;
+                        return Err(format!("Failed to create subscriber: {:?}", e).into());
                     }
                 }
             }
         }
 
-        Error::OK
+        Ok(())
     }
 
     /// Get the peer ID for this session
