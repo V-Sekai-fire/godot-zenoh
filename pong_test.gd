@@ -18,9 +18,9 @@ var join_button: Button
 
 var countdown_timer: Timer
 
-# LEADER ELECTION STATE
-var known_peers: Array = []  # List of all known peer IDs for election
-var election_timer: Timer    # Timer for election completion
+# RAFT CONSENSUS STATE
+var raft_consensus: ZenohRaftConsensus = null
+var election_timer: Timer              # Timer for election completion
 var leader_election_phase: bool = false  # Whether we're in election phase
 
 # Connection state machine constants (integer enum)
@@ -560,7 +560,7 @@ func _on_election_timeout():
 		# Complete election with all known real IDs
 		real_peers.sort()
 		var leader_id = real_peers[0]
-		print("🏆 ELECTION COMPLETE: Lowest real ID leader is #" + str(leader_id))
+		print("� ELECTION COMPLETE: Lowest real ID leader is #" + str(leader_id))
 
 		if leader_id == my_id:
 			print("✅ I WON THE ELECTION - becoming server leader")

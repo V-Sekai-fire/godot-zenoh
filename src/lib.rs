@@ -3,6 +3,7 @@ use godot::init::gdextension;
 
 pub mod networking;
 pub mod peer;
+pub mod raft_consensus;
 // mod extension;  // Not needed for current implementation
 
 pub use peer::*;
