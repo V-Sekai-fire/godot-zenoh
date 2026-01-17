@@ -271,9 +271,6 @@ pub struct ZenohMultiplayerPeer {
     current_channel: i32,
     max_packet_size: i32,
 
-    // Synchronization data for late joiners
-    sync_data: Arc<Mutex<Option<PackedByteArray>>>,
-
     // Store ZID for get_zid() method
     zid: GodotString,
 
@@ -333,7 +330,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             current_channel: 0,
             max_packet_size: 1472, // UDP MTU - Zenoh overhead
             zid: GString::from(""),
-            sync_data: Arc::new(Mutex::new(None)),
             base: _base,
         }
     }
@@ -517,50 +513,10 @@ impl ZenohMultiplayerPeer {
     fn get_packet(&mut self) -> PackedByteArray {
         // Process packets by priority: always check lowest channel number first
         // Channels are ordered 0=highest priority, 255=lowest priority
-
-        // First pass: check for sync requests and handle them
-        let sync_data_for_response = {
-            let mut queues = self.packet_queues.lock().unwrap();
-            if let Some(queue) = queues.get_mut(&254) {
-                if let Some(_) = queue.pop_front() {
-                    // Channel 254: Sync request from client
-                    if self.is_server() {
-                        // Get sync data while we have the lock
-                        self.sync_data.lock().unwrap().as_ref().cloned()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        // Handle sync response outside of lock
-        if let Some(sync_data) = sync_data_for_response {
-            // Send sync data back to the requesting client
-            self.set_transfer_channel(255);
-            let _ = self.put_packet(sync_data.clone());
-            self.set_transfer_channel(0);
-            godot_print!("📤 Responded to sync request with {} bytes", sync_data.len());
-            // Don't return the sync request packet to user - it's internal
-            return PackedByteArray::new();
-        }
-
-        // Second pass: get regular packets
         let mut queues = self.packet_queues.lock().unwrap();
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
-                    if priority == 255 {
-                        // Channel 255: Sync data from server
-                        godot_print!("📨 Received sync data ({} bytes)", packet.data.len());
-                        // Store the sync data for later retrieval
-                        *self.sync_data.lock().unwrap() = Some(PackedByteArray::from_iter(packet.data.iter().copied()));
-                    }
-
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
                 }
@@ -576,13 +532,6 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn put_packet_on_channel(&mut self, p_buffer: PackedByteArray, channel: i32) -> Error {
-        // Store sync data when sending on channel 255
-        if channel == 255 {
-            let mut sync_data = self.sync_data.lock().unwrap();
-            *sync_data = Some(p_buffer.clone());
-            godot_print!("Stored sync data ({} bytes) for late joiners", p_buffer.len());
-        }
-
         // Use async bridge for sending packets
         if let Some(bridge) = &self.async_bridge {
             let data_vec = p_buffer.to_vec();
@@ -843,7 +792,7 @@ impl ZenohMultiplayerPeer {
         dict.set("channel", channel);
         dict.set("packet_count", self.get_channel_packet_count(channel));
         dict.set("priority", if channel == 0 { "highest" } else if channel <= 10 { "high" } else if channel <= 100 { "normal" } else { "low" });
-        dict.set("special", if channel == 254 { "sync_request" } else if channel == 255 { "sync_data" } else { "" });
+        dict.set("special", "");
         dict
     }
 }
