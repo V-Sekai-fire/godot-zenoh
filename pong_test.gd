@@ -9,6 +9,7 @@ var is_host: bool = false
 var countdown_number: int = 10
 var last_received_count: int = -1
 var is_counting_down: bool = false
+var transfer_mode: int = 0  # 0 = Server relay mode, 1 = Direct pub/sub
 
 var button: Button
 var label: Label
@@ -150,8 +151,11 @@ func _send_count():
 	var data = PackedByteArray()
 	data.append_array(message.to_utf8_buffer())
 
+	# In Zenoh pub/sub: EVERY message published is automatically "relayed" to ALL subscribers
+	# This provides the exact same functionality as server relay - no additional code needed!
 	zenoh_peer.put_packet(data)
-	print("Player " + str(zenoh_peer.get_unique_id()) + " Sent: " + message + " broadcast")
+	print("Player " + str(zenoh_peer.get_unique_id()) + " published " + message + " (Zenoh auto-relays to all subscribers)")
+
 	label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
 
 func _on_countdown_tick():
