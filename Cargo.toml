@@ -22,13 +22,13 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # For async signal handling
 futures = "0.3"
 
-# FULL RAFT IMPLEMENTATION - async-raft for distributed consensus
-async-raft = { version = "0.7", default-features = false, features = ["tracing"] }
-async-raft-ext = "0.8"
+# REAL RAFT IMPLEMENTATION - must use Raft
+async-raft = "0.6.1"
+async-raft-ext = "0.6"
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tracing = "0.1"
+anyhow = "1.0"
 
 [build-dependencies]
 # Optional: if we need custom build steps
