@@ -208,7 +208,6 @@ impl ZenohMultiplayerPeer {
             let session_clone = Arc::clone(zenoh_session_arc);
             let data_vec = p_buffer.to_vec();
             let game_id = self.game_id.clone();
-            let data_len = data_vec.len();
 
             std::thread::spawn(move || {
                 let runtime = Runtime::new().unwrap();

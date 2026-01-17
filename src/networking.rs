@@ -12,12 +12,14 @@ use zenoh::pubsub::Publisher;
 use zenoh::pubsub::Subscriber;
 use zenoh_config::{EndPoint, ModeDependentValue};
 
-/// Zenoh-native packet using topic-based routing with HOL-aware payload tagging
+/// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
+    #[allow(dead_code)] // Future diagnostics, debugging topics
     pub topic: GString,
-    /// HOL priority (0=highest) extracted from topic suffix
+    /// Channel (0=highest priority, 255=lowest priority)
+    #[allow(dead_code)] // Future channel diagnostics, priority verification
     pub hol_priority: i32,
 }
 
