@@ -5,12 +5,10 @@ var current_state = "disconnected"
 var state_data = {}
 
 func init(initial_data = {}):
-	# Return {ok, state}
 	state_data = initial_data.duplicate()
 	return ["ok", self]
 
 func handle_call(message, from, state_data):
-	# Synchronous calls - {reply, response, new_state, new_data}
 	match current_state:
 		"connected":
 			if message == "start_election":
@@ -26,7 +24,6 @@ func handle_call(message, from, state_data):
 	return ["reply", "unhandled", current_state, state_data]
 
 func handle_cast(message, state_data):
-	# Asynchronous casts - {noreply, new_state, new_data}
 	match message.type:
 		"peer_joined":
 			var peers = state_data.get("peers", [])

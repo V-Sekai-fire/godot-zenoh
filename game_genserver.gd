@@ -40,7 +40,6 @@ func handle_cast(message, state_data):
 func handle_info(message, state_data):
 	match message.type:
 		"hlc_timeout":
-			# Handle HLC-based turn timeouts to prevent deadlocks
 			if current_state == "active" and not state_data.game_over:
 				_force_next_turn(state_data)
 				return ["noreply", "active", state_data]
