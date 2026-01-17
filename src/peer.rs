@@ -148,7 +148,12 @@ impl ZenohAsyncBridge {
         // Process all pending commands
         while let Ok(cmd) = self.command_rx.try_recv() {
             godot_print!("Processing command: {:?}", cmd);
-            let event = futures::executor::block_on(async {
+            // Create a new runtime for each command to avoid blocking
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let event = rt.block_on(async {
                 self.actor.handle_command(cmd).await
             });
             if let Some(event) = event {
@@ -343,10 +348,14 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn close(&mut self) {
+        // Only log if we were actually connected
+        if self.connection_status != 0 {
+            godot_print!("ZenohMultiplayerPeer connection closed");
+        }
         self.connection_status = 0; // DISCONNECTED
-        godot_print!("ZenohMultiplayerPeer connection closed");
         // Clear all packet queues
         self.packet_queues.lock().unwrap().clear();
+        // Note: Zenoh session will be dropped when async_bridge is dropped
     }
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
@@ -550,6 +559,9 @@ impl ZenohMultiplayerPeer {
         // Close any existing connection first
         self.close();
 
+        // Set status to CONNECTING before attempting connection
+        self.connection_status = 1; // CONNECTING
+
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
@@ -565,36 +577,12 @@ impl ZenohMultiplayerPeer {
                 port,
             }) {
                 godot_error!("Failed to send create client command: {:?}", e);
+                self.connection_status = 0; // DISCONNECTED
                 return Error::FAILED;
-            }
-
-            // Process the command immediately to create the session
-            let events = bridge.process_pending_commands();
-            for event in events {
-                match event {
-                    ZenohStateUpdate::ClientConnected { zid, peer_id } => {
-                        self.connection_status = 2; // CONNECTED
-                        self.unique_id = peer_id;
-                        self.zid = GString::from(zid.as_str());
-                        godot_print!("CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
-                        
-                        // Emit connected_to_server signal for clients
-                        self.base_mut().emit_signal("connected_to_server", &[]);
-                    },
-                    ZenohStateUpdate::ConnectionFailed { error } => {
-                        self.connection_status = 0; // DISCONNECTED
-                        godot_error!("CLIENT CONNECTION FAILED: {}", error);
-                        
-                        // Emit connection_failed signal
-                        self.base_mut().emit_signal("connection_failed", &[]);
-                        return Error::FAILED;
-                    },
-                    _ => {} // Ignore other events for now
-                }
             }
         }
 
-        godot_print!("Client creation completed");
+        godot_print!("Client creation initiated - status: CONNECTING");
         Error::OK
     }
 
@@ -604,6 +592,9 @@ impl ZenohMultiplayerPeer {
 
         // Close any existing connection first
         self.close();
+
+        // Set status to CONNECTING before attempting connection
+        self.connection_status = 1; // CONNECTING
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
@@ -617,33 +608,12 @@ impl ZenohMultiplayerPeer {
         if let Some(bridge) = &mut self.async_bridge {
             if let Err(e) = bridge.send_command(ZenohCommand::CreateServer { port }) {
                 godot_error!("Failed to send create server command: {:?}", e);
+                self.connection_status = 0; // DISCONNECTED
                 return Error::FAILED;
-            }
-
-            // Process the command immediately to create the session
-            let events = bridge.process_pending_commands();
-            for event in events {
-                match event {
-                    ZenohStateUpdate::ServerCreated { zid } => {
-                        self.connection_status = 2; // CONNECTED
-                        self.unique_id = 1; // Server is peer 1
-                        self.zid = GString::from(zid.as_str());
-                        godot_print!("SERVER CREATED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, self.unique_id);
-                    },
-                    ZenohStateUpdate::ConnectionFailed { error } => {
-                        self.connection_status = 0; // DISCONNECTED
-                        godot_error!("SERVER CREATION FAILED: {}", error);
-                        
-                        // Emit connection_failed signal
-                        self.base_mut().emit_signal("connection_failed", &[]);
-                        return Error::FAILED;
-                    },
-                    _ => {} // Ignore other events for now
-                }
             }
         }
 
-        godot_print!("Server creation completed");
+        godot_print!("Server creation initiated - status: CONNECTING");
         Error::OK
     }
 
@@ -659,8 +629,11 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn close(&mut self) {
+        // Only log if we were actually connected
+        if self.connection_status != 0 {
+            godot_print!("ZenohMultiplayerPeer connection closed");
+        }
         self.connection_status = 0; // DISCONNECTED
-        godot_print!("ZenohMultiplayerPeer connection closed");
         // Clear all packet queues
         self.packet_queues.lock().unwrap().clear();
     }
