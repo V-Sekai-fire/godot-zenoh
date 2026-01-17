@@ -366,13 +366,13 @@ impl ZenohMultiplayerPeer {
     }
 
     #[func]
-    fn create_server(&mut self, port: i32, max_clients: i32) -> Error {
+    fn create_server(&mut self, port: i32, _max_clients: i32) -> Error {
         godot_print!("Creating Zenoh server on port {}", port);
         let runtime = Runtime::new().unwrap();
         let packet_queues = Arc::clone(&self.packet_queues);
 
         let session_result = runtime.block_on(async {
-            ZenohSession::create_server(port, max_clients, packet_queues, self.game_id.clone())
+            ZenohSession::create_server(port, packet_queues, self.game_id.clone())
                 .await
         });
 

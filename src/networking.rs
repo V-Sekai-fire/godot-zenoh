@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use zenoh::Config as ZenohConfig;
 // ZBuf import will be added when zenoh 1.7.2 module structure is known
 // For now using Vec<u8> - will replace with native ZBuf once located
 use zenoh::pubsub::Publisher;
@@ -50,16 +49,15 @@ impl ZenohSession {
         let mut config = zenoh_config::Config::default();
 
         if !address.is_empty() && port > 0 {
-            // Connect to specific Zenoh router endpoint using QUIC for superior performance
-            let endpoint = format!("quic/{}:{}", address, port);
+            // Connect to specific Zenoh router endpoint via TCP (router listens on TCP)
+            let tcp_endpoint = format!("tcp/{}:{}", address, port);
             godot_print!(
-                "🚀 Connecting Zenoh CLIENT to router via QUIC: {}",
-                endpoint
+                "🚀 Connecting Zenoh CLIENT to router via TCP: {}",
+                tcp_endpoint
             );
 
-            // Set QUIC endpoint for router connection using zenoh 1.7.2 Endpoint creation
-            let endpoint_str = format!("quic/{}:{}", address, port);
-            // Create endpoint using unchecked string parsing for zenoh 1.7.2
+            // Set TCP endpoint for router connection
+            let endpoint_str = format!("tcp/{}:{}", address, port);
             if let Ok(endpoint) = endpoint_str.parse::<EndPoint>() {
                 config.connect.endpoints = ModeDependentValue::Unique(vec![endpoint]);
             } else {
@@ -72,8 +70,8 @@ impl ZenohSession {
             godot_print!("🌐 Creating Zenoh CLIENT with default peer discovery");
         }
 
-        // Use default zenoh config for now - zenoh_config conversion needs zenoh specific API
-        let zenoh_config = ZenohConfig::default();
+        // Use default zenoh config for client connections
+        let zenoh_config = zenoh::Config::default();
         let session_result = zenoh::open(zenoh_config).await;
         let session = match session_result {
             Ok(sess) => sess,
@@ -105,71 +103,44 @@ impl ZenohSession {
         })
     }
 
-    /// Create Zenoh networking server session (router)
+    /// Create Zenoh networking server session (connects to external router)
     pub async fn create_server(
         port: i32,
-        max_clients: i32,
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!(
-            "🎯 Creating Zenoh SERVER router on port {} - HOL blocking prevention ENABLED",
+            "🎯 Creating Zenoh SERVER client on port {} - HOL blocking prevention ENABLED",
             port
         );
 
-        // Configure as Zenoh router (server mode)
+        // Configure Zenoh session with endpoint to external router
         let mut config = zenoh_config::Config::default();
 
-        // Enable multicast scouting for client discovery
-        if let Err(e) = config.scouting.multicast.set_enabled(Some(true)) {
-            godot_error!("❌ Failed to enable multicast scouting: {:?}", e);
-        }
-
-        // Configure listen endpoints for the server with QUIC for maximum performance
         if port > 0 {
-            let quic_endpoint = format!("quic/127.0.0.1:{}", port);
-            let tcp_endpoint = format!("tcp/127.0.0.1:{}", port + 1000); // TCP fallback on port+1000
-            let http_endpoint = format!("http/127.0.0.1:{}", port + 2000); // HTTP API on port+2000
+            // Connect to specific Zenoh router endpoint via TCP (router listens on TCP)
+            let tcp_endpoint = format!("tcp/127.0.0.1:{}", port);
             godot_print!(
-                "⚡ Configuring Zenoh SERVER with QUIC: QUIC={}, TCP={}, HTTP={}",
-                quic_endpoint,
-                tcp_endpoint,
-                http_endpoint
+                "🚀 Connecting Zenoh SERVER to router via TCP: {}",
+                tcp_endpoint
             );
 
-            // Parse endpoints directly for server configuration
-            let mut endpoints = Vec::new();
-            if let Ok(quic_ep) = quic_endpoint.parse::<EndPoint>() {
-                endpoints.push(quic_ep);
-            }
-            if let Ok(tcp_ep) = tcp_endpoint.parse::<EndPoint>() {
-                endpoints.push(tcp_ep);
-            }
-            if let Ok(http_ep) = http_endpoint.parse::<EndPoint>() {
-                endpoints.push(http_ep);
-            }
-            if !endpoints.is_empty() {
-                config.listen.endpoints = ModeDependentValue::Unique(endpoints);
+            // Set TCP endpoint for router connection
+            let endpoint_str = format!("tcp/127.0.0.1:{}", port);
+            if let Ok(endpoint) = endpoint_str.parse::<EndPoint>() {
+                config.connect.endpoints = ModeDependentValue::Unique(vec![endpoint]);
+            } else {
+                godot_print!(
+                    "⚠️ Failed to parse endpoint {}, falling back to defaults",
+                    endpoint_str
+                );
             }
         } else {
-            godot_print!("⚠️ No server port specified, using default Zenoh router configuration");
-            // Default Zenoh will use standard ports
+            godot_print!("🌐 Creating Zenoh SERVER with default peer discovery");
         }
 
-        // Configure connection limits if max_clients specified
-        if max_clients > 0 {
-            godot_print!(
-                "👥 Server configured for max {} client connections",
-                max_clients
-            );
-            // Note: Zenoh doesn't have direct client limits, but we document the intention
-            // In a real implementation, this could configure QoS or connection acceptance policies
-        } else {
-            godot_print!("🌐 Server configured for unlimited client connections");
-        }
-
-        // Use default zenoh config for now - zenoh_config conversion needs zenoh specific API
-        let zenoh_config = ZenohConfig::default();
+        // Use default zenoh config for server connections
+        let zenoh_config = zenoh::Config::default();
         let session_result = zenoh::open(zenoh_config).await;
         let session = match session_result {
             Ok(sess) => sess,
@@ -181,9 +152,9 @@ impl ZenohSession {
 
         let session = Arc::new(session);
 
+        // Server has fixed peer ID 1 (Godot convention)
         godot_print!(
-            "✅ Zenoh SERVER router started on port {}, Game: {}",
-            port,
+            "✅ Zenoh SERVER connected - Peer ID: 1, Game: {}",
             game_id
         );
 
@@ -194,7 +165,7 @@ impl ZenohSession {
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
             game_id,
-            peer_id: 0, // Server is peer 0
+            peer_id: 1, // Server is peer 1
         })
     }
 
