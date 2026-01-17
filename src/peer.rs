@@ -317,6 +317,9 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("✅ CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
+                        
+                        // Emit connected_to_server signal for clients
+                        self.base_mut().emit_signal("connected_to_server", &[]);
                     },
                     ZenohStateUpdate::ServerCreated { zid } => {
                         self.connection_status = 2; // CONNECTED
@@ -327,6 +330,9 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
                         godot_error!("❌ CONNECTION FAILED: {}", error);
+                        
+                        // Emit connection_failed signal
+                        self.base_mut().emit_signal("connection_failed", &[]);
                     },
                 }
             }
@@ -568,10 +574,16 @@ impl ZenohMultiplayerPeer {
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("✅ CLIENT CONNECTED IMMEDIATELY: ZID: {}, Peer ID: {}", zid, peer_id);
+                        
+                        // Emit connected_to_server signal for clients
+                        self.base_mut().emit_signal("connected_to_server", &[]);
                     },
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
                         godot_error!("❌ CLIENT CONNECTION FAILED: {}", error);
+                        
+                        // Emit connection_failed signal
+                        self.base_mut().emit_signal("connection_failed", &[]);
                         return Error::FAILED;
                     },
                     _ => {} // Ignore other events for now
@@ -618,6 +630,9 @@ impl ZenohMultiplayerPeer {
                     ZenohStateUpdate::ConnectionFailed { error } => {
                         self.connection_status = 0; // DISCONNECTED
                         godot_error!("❌ SERVER CREATION FAILED: {}", error);
+                        
+                        // Emit connection_failed signal
+                        self.base_mut().emit_signal("connection_failed", &[]);
                         return Error::FAILED;
                     },
                     _ => {} // Ignore other events for now
