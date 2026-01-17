@@ -9,7 +9,6 @@ use std::collections::{VecDeque, HashMap};
 use std::sync::{Arc, Mutex};
 
 use crate::networking::{ZenohSession, Packet};
-use tokio::runtime::Runtime;
 
 
 
@@ -197,7 +196,7 @@ impl ZenohMultiplayerPeer {
         let mut queues = self.packet_queues.lock().unwrap();
         queues.entry(self.current_channel)
             .or_insert_with(VecDeque::new)
-            .push_back(Packet { data: p_buffer.to_vec() });
+            .push_back(Packet { data: p_buffer.to_vec(), channel: self.current_channel, from_peer_id: self.unique_id as i64 });
         godot_print!("Packet queued on virtual channel {}", self.current_channel);
         Error::OK
     }
@@ -208,7 +207,7 @@ impl ZenohMultiplayerPeer {
         let mut queues = self.packet_queues.lock().unwrap();
         queues.entry(channel)
             .or_insert_with(VecDeque::new)
-            .push_back(Packet { data: p_buffer.to_vec() });
+            .push_back(Packet { data: p_buffer.to_vec(), channel, from_peer_id: self.unique_id as i64 });
         godot_print!("Packet queued on channel {} (HOL prevention active)", channel);
         Error::OK
     }
@@ -254,7 +253,7 @@ impl ZenohMultiplayerPeer {
             for channel in 200..=220 {
                 for i in 0..5 {
                     let data = vec![channel as u8, i as u8];
-                    let packet = Packet { data };
+                    let packet = Packet { data, channel, from_peer_id: -1 }; // Demo packets from peer -1
                     queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
                 }
             }
@@ -262,7 +261,7 @@ impl ZenohMultiplayerPeer {
             // Add ONE critical packet to channel 0 (should be processed first)
             godot_print!("Adding critical packet to channel 0...");
             let critical_data = vec![0u8, 255u8]; // Channel 0 marker, critical flag
-            let critical_packet = Packet { data: critical_data };
+            let critical_packet = Packet { data: critical_data, channel: 0, from_peer_id: -1 };
             queues.entry(0).or_insert_with(VecDeque::new).push_front(critical_packet);
         } // Release queues lock
 

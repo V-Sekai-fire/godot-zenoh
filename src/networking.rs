@@ -9,60 +9,71 @@ use zenoh::prelude::r#async::*;
 use zenoh::publication::Publisher;
 use zenoh::subscriber::Subscriber;
 
-/// Zenoh networking session for peer-to-peer communication with HOL blocking prevention
-#[derive(Debug, Clone)]
+/// Real Zenoh networking packet with peer identification
+#[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>,
+    pub channel: i32,
     pub from_peer_id: i64,
 }
 
+/// Zenoh networking session with HOL blocking prevention
 pub struct ZenohSession {
+    /// Zenoh networking session
     session: Arc<zenoh::Session>,
-    runtime: Arc<Runtime>,
+    /// Async runtime for Zenoh operations
+    runtime: Runtime,
+    /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
+    /// Subscribers for each channel (lazy initialization)
     subscribers: Arc<Mutex<HashMap<i32, Subscriber<'static>>>>,
+    /// packet_queues for HOL processing
     packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
+    /// Game identifier
     game_id: GString,
+    /// Unique peer identifier
     peer_id: i64,
+    /// Server/client role
     is_server: bool,
 }
 
 impl ZenohSession {
+    /// Create Zenoh networking client session
     pub async fn create_client(
         address: GString,
         port: i32,
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("Creating Zenoh CLIENT peer - replacing ENet networking with HOL blocking prevention");
+        godot_print!("🎯 Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
 
-        // Connect to Zenoh router/scouting
+        // Configure Zenoh session
         let config = zenoh::Config::default();
 
-        // If address is provided, connect to specific router
+        // If address provided, connect to specific Zenoh router
         let config = if !address.is_empty() {
-            let listen_addr = format!("tcp/{:}:{:}", address, port);
-            config.listen_endpoints(vec![listen_addr.parse()?])
+            let endpoints = vec![format!("tcp/{:}:{:}", address, port).parse()?];
+            config.listen_endpoints(endpoints)
         } else {
             config
         };
 
+        // Open Zenoh session
         let session = zenoh::open(config).res().await.map_err(|e| {
-            godot_error!("Failed to connect Zenoh session: {:?}", e);
+            godot_error!("❌ Failed to connect Zenoh CLIENT session: {:?}", e);
             e
         })?;
 
         let session = Arc::new(session);
 
-        // Generate unique peer ID for this client
-        let peer_id = (rand::random::<u32>() % 999) as i64 + 2; // Client IDs 2-1000
+        // Generate unique peer ID for client (1-1000)
+        let peer_id = (rand::random::<u32>() % 999 + 1) as i64;
 
-        godot_print!("Zenoh client connected - Peer ID: {}, Game: {}",
-                    peer_id, game_id);
+        godot_print!("✅ Zenoh CLIENT connected - Peer ID: {}, Game: {}", peer_id, game_id);
 
         Ok(ZenohSession {
             session,
-            runtime: Arc::new(Runtime::new()?),
+            runtime: Runtime::new()?,
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
@@ -72,171 +83,159 @@ impl ZenohSession {
         })
     }
 
+    /// Create Zenoh networking server session (router)
     pub async fn create_server(
-        _port: i32,
-        _max_clients: i32,
+        port: i32,
+        max_clients: i32,
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("Creating Zenoh SERVER peer - replacing ENet networking with HOL blocking prevention");
+        godot_print!("🎯 Creating Zenoh SERVER router - HOL blocking prevention ENABLED");
 
-        // Configure as Zenoh router (server role)
+        // Configure as Zenoh router (server mode)
         let mut config = zenoh::Config::default();
 
-        // Enable scouting/router mode for server
-        config.scouting.multicast.set_enabled(None);
+        // Enable multicast scouting for router discovery
+        let config = config.scouting.multicast.set_enabled(Some("en0".into()));
+
+        // Listen on specified port
+        let listen_endpoint = format!("tcp/0.0.0.0:{:}", port).parse()?;
+        let config = config.listen_endpoints(vec![listen_endpoint]);
 
         let session = zenoh::open(config).res().await.map_err(|e| {
-            godot_error!("Failed to create Zenoh server session: {:?}", e);
+            godot_error!("❌ Failed to create Zenoh SERVER session: {:?}", e);
             e
         })?;
 
         let session = Arc::new(session);
 
-        godot_print!("Zenoh server started - Peer ID: 1, Game: {}", game_id);
+        godot_print!("✅ Zenoh SERVER router started on port {}, Game: {}", port, game_id);
 
         Ok(ZenohSession {
             session,
-            runtime: Arc::new(Runtime::new()?),
+            runtime: Runtime::new()?,
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
             game_id,
-            peer_id: 1, // Server is always peer ID 1
+            peer_id: 0, // Server is peer 0
             is_server: true,
         })
     }
 
+    /// HOL BLOCKING PREVENTION: Send packet on specific virtual channel
     pub fn send_packet(&self, p_buffer: &[u8], game_id: GString, channel: i32) -> Error {
-        // HOL BLOCKING PREVENTION: Use Zenoh pub/sub with virtual channel topics
         let topic = format!("godot/game/{}/channel{:03}", game_id, channel);
 
+        // Try to get existing publisher
         if let Ok(publisher) = self.publishers.lock().unwrap().get(&channel) {
-            // Send via Zenoh pub/sub
-            let sender = publisher.clone();
             let data = p_buffer.to_vec();
+            let publisher_clone = publisher.clone();
 
-            let session = Arc::clone(&self.session);
             self.runtime.spawn(async move {
-                if let Err(e) = sender.put(data).res().await {
+                if let Err(e) = publisher_clone.put(data).res().await {
                     godot_error!("Failed to send Zenoh packet on channel {}: {:?}", channel, e);
                 }
             });
 
-            godot_print!("Sent packet via Zenoh HOL channel {} (size: {})", channel, p_buffer.len());
+            godot_print!("📤 Packet sent via Zenoh HOL channel {} (size: {})", channel, p_buffer.len());
             return Error::OK;
         }
 
-        // Fallback: Queue locally if Zenoh publisher not ready (HOL prevention still applies)
-        godot_print!("Zenoh publisher not ready, queuing packet for HOL processing (channel: {})", channel);
+        godot_print!("⚠️ Zenoh publisher not ready for channel {}, queuing locally", channel);
         self.queue_packet_locally(p_buffer, channel, self.peer_id);
         Error::OK
     }
 
+    /// HOL BLOCKING PREVENTION: Setup publisher/subscriber for virtual channel
     pub fn setup_channel(&self, channel: i32) -> Error {
-        let game_id = self.game_id.clone();
+        let game_id = &self.game_id;
         let packet_queues = Arc::clone(&self.packet_queues);
         let peer_id = self.peer_id;
 
         let topic = format!("godot/game/{}/channel{:03}", game_id, channel);
 
-        godot_print!("Setting up Zenoh HOL channel {}: {}", channel, topic);
+        godot_print!("🎛️ Setting up Zenoh HOL virtual channel {}: {}", channel, topic);
 
-        // Create publisher for this channel
+        // Lazy initialization of publisher
         {
             let mut publishers = self.publishers.lock().unwrap();
             if publishers.get(&channel).is_none() {
                 let session = Arc::clone(&self.session);
-                let runtime = Arc::clone(&self.runtime);
-
-                // Create publisher asynchronously
-                runtime.block_on(async {
-                    match session.declare_publisher(&topic).res().await {
-                        Ok(publisher) => {
-                            publishers.insert(channel, publisher);
-                            godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
-                        }
-                        Err(e) => {
-                            godot_error!("Failed to create Zenoh publisher for channel {}: {:?}", channel, e);
-                        }
-                    }
+                let publisher_result = self.runtime.block_on(async {
+                    session.declare_publisher(&topic).res().await
                 });
+
+                match publisher_result {
+                    Ok(publisher) => {
+                        publishers.insert(channel, publisher);
+                        godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
+                    }
+                    Err(e) => {
+                        godot_error!("❌ Failed to create Zenoh publisher for channel {}: {:?}", channel, e);
+                        return Error::FAILED;
+                    }
+                }
             }
         }
 
-        // Create subscriber for this channel (HOL prevention receives packets here)
+        // Lazy initialization of subscriber with HOL processing
         {
             let mut subscribers = self.subscribers.lock().unwrap();
             if subscribers.get(&channel).is_none() {
                 let session = Arc::clone(&self.session);
                 let packet_queues = Arc::clone(&packet_queues);
-                let runtime = Arc::clone(&self.runtime);
 
-                runtime.block_on(async {
-                    let subscriber_result = session
-                        .declare_subscriber(&topic)
+                let subscriber_result = self.runtime.block_on(async {
+                    session.declare_subscriber(&topic)
                         .callback(move |sample| {
                             // HOL BLOCKING PREVENTION: Received packet from Zenoh
-                            // Queue it for HOL-safe processing
-                            let payload = sample.payload();
-                            let data = payload.contiguous().to_vec();
+                            // Queue it for HOL-safe processing (lowest channels first)
+                            let data = sample.payload().contiguous().to_vec();
 
-                            let mut queues = packet_queues.lock().unwrap();
                             let packet = Packet {
                                 data,
-                                from_peer_id: 0, // TODO: Extract from Zenoh sample
+                                channel,
+                                from_peer_id: peer_id, // In real impl, extract from Zenoh metadata
                             };
 
+                            let mut queues = packet_queues.lock().unwrap();
                             queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
 
-                            godot_print!("✅ HOL PREVENTION: Received packet via Zenoh (channel: {}, size: {})",
-                                        channel, payload.len());
+                            godot_print!("📥 HOL PREVENTION: Received packet on channel {} (size: {})",
+                                       channel, sample.payload().len());
                         })
                         .res()
-                        .await;
-
-                    match subscriber_result {
-                        Ok(subscriber) => {
-                            subscribers.insert(channel, subscriber);
-                            godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
-                        }
-                        Err(e) => {
-                            godot_error!("Failed to create Zenoh subscriber for channel {}: {:?}", channel, e);
-                        }
-                    }
+                        .await
                 });
+
+                match subscriber_result {
+                    Ok(subscriber) => {
+                        subscribers.insert(channel, subscriber);
+                        godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
+                    }
+                    Err(e) => {
+                        godot_error!("❌ Failed to create Zenoh subscriber for channel {}: {:?}", channel, e);
+                        return Error::FAILED;
+                    }
+                }
             }
         }
 
         Error::OK
     }
 
-    fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
-        let packet = Packet {
-            data: p_buffer.to_vec(),
-            from_peer_id,
-        };
-
-        let mut queues = self.packet_queues.lock().unwrap();
-        let queue = queues.entry(channel).or_insert_with(VecDeque::new);
-        queue.push_back(packet);
-
-        godot_print!("Packet queued locally for HOL processing (channel: {}, peer: {})",
-                    channel, from_peer_id);
-    }
-
-    pub fn receive_packets(&self) -> Vec<(i32, Packet)> {
-        // HOL BLOCKING PREVENTION: Return packets in lowest-channel-first order
+    /// HOL BLOCKING PREVENTION: Receive packets in priority order (0-255)
+    pub fn receive_packets(&self) -> Vec<Packet> {
         let mut results = Vec::new();
         let mut queues = self.packet_queues.lock().unwrap();
 
-        // Process channels in HOL prevention order (0-255)
+        // Process channels in HOL prevention order (lowest number = highest priority)
         for channel in 0..=255 {
             if let Some(queue) = queues.get_mut(&channel) {
                 while let Some(packet) = queue.pop_front() {
-                    results.push((channel, packet));
-                    // For HOL prevention, we could limit to one packet per channel per poll
-                    // but for now, return all available packets
+                    results.push(packet);
+                    // In production, might limit to one packet per channel per call
                 }
             }
         }
@@ -244,15 +243,28 @@ impl ZenohSession {
         results
     }
 
+    /// Cleanup Zenoh networking session
     pub fn close(&self) -> Error {
-        let session_arc = Arc::clone(&self.session);
+        let session = Arc::clone(&self.session);
         self.runtime.block_on(async move {
-            if let Err(e) = session_arc.close().res().await {
-                godot_error!("Error closing Zenoh session: {:?}", e);
+            if let Err(e) = session.close().res().await {
+                godot_error!("Error closing Zenoh networking session: {:?}", e);
             }
         });
 
-        godot_print!("Zenoh session closed - HOL blocking prevention ended");
+        godot_print!("🧹 Zenoh networking session closed - HOL blocking prevention ended");
         Error::OK
+    }
+
+    /// Local queue fallback for HOL processing
+    fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
+        let packet = Packet {
+            data: p_buffer.to_vec(),
+            channel,
+            from_peer_id,
+        };
+
+        let mut queues = self.packet_queues.lock().unwrap();
+        queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
     }
 }

@@ -2,6 +2,7 @@
 use godot::init::gdextension;
 
 mod peer;
+mod networking;
 // mod extension;  // Not needed for current implementation
 
 pub use peer::*;
