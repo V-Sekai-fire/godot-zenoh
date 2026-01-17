@@ -143,6 +143,23 @@ godot --headless main_scene.tscn --server
 godot --headless main_scene.tscn --client
 ```
 
+### Git Commit Guidelines
+
+This project does not use conventional commits. Use clear, descriptive commit messages that explain:
+
+- **What** was changed
+- **Why** the change was necessary
+- **How** the change addresses the issue
+
+Example:
+```
+Fix race condition in message routing logic
+
+Implement proper message ordering in Zenoh networking layer to prevent
+concurrent access issues. Add mutex guards around shared packet queues
+and validate ordering constraints in property-based tests.
+```
+
 ### Pull Request Process
 
 1. **Fork and Branch**: Create a feature branch from `main`
@@ -151,7 +168,7 @@ godot --headless main_scene.tscn --client
    - Run `cargo fmt` and `cargo clippy`
    - Ensure all tests pass
    - Update documentation
-4. **Commit**: Use clear, descriptive commit messages
+4. **Commit**: Use clear, descriptive commit messages as documented above
 5. **PR Description**: Include what was changed and why
 
 ### Reporting Issues
