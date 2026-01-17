@@ -71,8 +71,17 @@ impl ZenohSession {
 
         let session = Arc::new(session);
 
-        // Generate unique peer ID for client (1-1000)`
-        let peer_id = (rand::random::<u32>() % 999 + 1) as i64;
+        // Use zenoh session ZID as unique peer identifier
+        let zid = session.zid().to_string();
+        godot_print!("🌐 Zenoh ZID: {}", zid);
+
+        // Use last 8 chars of ZID as numeric ID base (hex -> i64)
+        let peer_id = if zid.len() >= 8 {
+            let last8 = &zid[zid.len()-8..];
+            i64::from_str_radix(last8, 16).unwrap_or_else(|_| 2)
+        } else {
+            2 // Fallback for short ZIDs
+        };
 
         godot_print!(
             "✅ Zenoh CLIENT connected - Peer ID: {}, Game: {}",
@@ -131,6 +140,10 @@ impl ZenohSession {
         };
 
         let session = Arc::new(session);
+
+        // Show zenoh session ZID for debugging
+        let zid = session.zid().to_string();
+        godot_print!("🌐 Zenoh ZID: {} (Server)", zid);
 
         // Server has fixed peer ID 1 (Godot convention)
         godot_print!(
