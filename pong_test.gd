@@ -33,12 +33,31 @@ var connection_state: int = STATE_DISCONNECTED
 func _ready():
 	print("Pong Test Starting...")
 
-	# Create UI
-	setup_ui()
+	# Check command line arguments for automatic mode
+	var args = OS.get_cmdline_args()
+	var is_server = args.has("--server")
+	var is_client = args.has("--client")
 
-	# Initialize zenoh peer
-	zenoh_peer = ZenohMultiplayerPeer.new()
-	zenoh_peer.game_id = "pong_test"
+	if is_server or is_client:
+		print("Running in automatic mode - skip UI")
+		# Initialize zenoh peer
+		zenoh_peer = ZenohMultiplayerPeer.new()
+		zenoh_peer.game_id = "pong_test"
+
+		if is_server:
+			print("Auto-starting as server...")
+			_on_host_pressed()
+		else:
+			print("Auto-starting as client...")
+			_on_join_pressed()
+	else:
+		print("Running in interactive mode - setup UI")
+		# Create UI
+		setup_ui()
+
+		# Initialize zenoh peer
+		zenoh_peer = ZenohMultiplayerPeer.new()
+		zenoh_peer.game_id = "pong_test"
 
 func setup_ui():
 	# Create UI for testing
@@ -80,7 +99,8 @@ func _on_host_pressed():
 
 	# STATE MACHINE: Prevent multiple hosts in the same session
 	if connection_state != STATE_DISCONNECTED:
-		label.text = "ALREADY connected! Disconnect first (State: " + str(connection_state) + ")"
+		if label:
+			label.text = "ALREADY connected! Disconnect first (State: " + str(connection_state) + ")"
 		print("Already connected - cannot start another host session")
 		return
 
@@ -88,10 +108,11 @@ func _on_host_pressed():
 	connection_state = STATE_CONNECTING
 
 	# Start server
-	var result = zenoh_peer.create_server(7448, 32)
+	var result = zenoh_peer.create_server(7447, 32)
 	if result == 0:
 		var client_id = zenoh_peer.get_unique_id()
-		label.text = "Hosting game - Player ID: " + str(client_id)
+		if label:
+			label.text = "Hosting game - Player ID: " + str(client_id)
 		print("Server Player ID: " + str(client_id))
 
 		# STATE MACHINE: Successfully hosting server
@@ -100,7 +121,8 @@ func _on_host_pressed():
 	else:
 		# STATE MACHINE: Server creation failed
 		connection_state = STATE_DISCONNECTED
-		label.text = "Failed to host: " + str(result)
+		if label:
+			label.text = "Failed to host: " + str(result)
 
 func _on_join_pressed():
 	print("Joining as client...")
@@ -108,7 +130,8 @@ func _on_join_pressed():
 
 	# STATE MACHINE: Check if already connected
 	if zenoh_peer.connection_status() == 2:  # Already connected?
-		label.text = "ALREADY connected! Disconnect first"
+		if label:
+			label.text = "ALREADY connected! Disconnect first"
 		print("Already connected - cannot join as another client")
 		return
 
@@ -122,11 +145,11 @@ func _on_join_pressed():
 	connection_state = STATE_CLIENT_ATTEMPTING
 
 	# Join server
-	var result = zenoh_peer.create_client("localhost", 7448)
+	var result = zenoh_peer.create_client("localhost", 7447)
 	if result == 0:
 		# Wait for connection to complete (poll until connected or timeout)
 		var connection_timeout = 5.0  # 5 second timeout
-		var start_time = Time.get_time_dict_from_system()
+		var start_time = Time.get_unix_time_from_system()
 		var elapsed = 0.0
 
 		while elapsed < connection_timeout:
@@ -141,13 +164,14 @@ func _on_join_pressed():
 					zid = "get_zid not available"
 
 				connection_state = STATE_CONNECTED
-				label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
+				if label:
+					label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
 				print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
 				setup_networking()
 				return
 
 			await get_tree().create_timer(0.1).timeout  # Wait 100ms
-			elapsed = Time.get_time_dict_from_system()["elapsed"] - start_time["elapsed"]
+			elapsed = Time.get_unix_time_from_system() - start_time
 
 		# Timeout - check final status
 		var final_status = zenoh_peer.connection_status()
@@ -155,17 +179,20 @@ func _on_join_pressed():
 			var client_id = zenoh_peer.get_unique_id()
 			var zid = zenoh_peer.get_zid()
 			connection_state = STATE_CONNECTED
-			label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
+			if label:
+				label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
 			print("Client connected after timeout - ID: " + str(client_id) + " | ZID: " + zid)
 			setup_networking()
 		else:
 			connection_state = STATE_ZENOH_SESSION_FAILED
-			label.text = "Connection timeout | Status: " + str(final_status)
+			if label:
+				label.text = "Connection timeout | Status: " + str(final_status)
 			print("❌ Client connection timeout - Status: " + str(final_status))
 	else:
 		# STATE MACHINE: Complete failure
 		connection_state = STATE_FAILED
-		label.text = "Failed to join: " + str(result)
+		if label:
+			label.text = "Failed to join: " + str(result)
 		print("❌ Client create_client failed with error: " + str(result))
 
 func setup_networking():
@@ -198,14 +225,16 @@ func _on_ping_pong_start():
 	if is_host:
 		# Host starts the countdown
 		print("Starting ping pong countdown as host")
-		label.text = "Starting countdown..."
+		if label:
+			label.text = "Starting countdown..."
 		is_counting_down = true
 		countdown_number = 10
 		_send_count()
 		countdown_timer.start()
 	else:
 		# Client waits to receive first message
-		label.text = "Waiting for host to start..."
+		if label:
+			label.text = "Waiting for host to start..."
 
 func _on_send_pressed():
 	# Send countdown number
@@ -232,7 +261,8 @@ func _send_count():
 	zenoh_peer.put_packet(data)
 	print("Player " + str(zenoh_peer.get_unique_id()) + " published " + message + " (Zenoh auto-relays to all subscribers)")
 
-	label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
+	if label:
+		label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
 
 func _on_countdown_tick():
 	# Automatic countdown disabled - only send when ack received
@@ -269,8 +299,15 @@ func _on_poll_timeout():
 
 			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
 			if countdown_number > 0 and count >= 0:
-				label.text = "Received: " + str(count) + " - Preparing response..."
+				if label:
+					label.text = "Received: " + str(count) + " - Preparing response..."
 				print("Player " + str(zenoh_peer.get_unique_id()) + " acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
+
+				# In automatic mode, run minimal test and exit
+				var args = OS.get_cmdline_args()
+				if args.has("--client"):
+					print("Client test successful - received message, exiting...")
+					get_tree().quit()
 
 				# Wait 1 second before responding (doesn't block the polling)
 				var response_timer = Timer.new()

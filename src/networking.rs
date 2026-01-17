@@ -13,7 +13,7 @@ use zenoh::pubsub::Subscriber;
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
-    pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
+    pub data: Vec<u8>,  // Using Vec<u8> - will optimize to ZBuf when api known
     pub from_peer: i64, // Sender peer ID for self-message filtering
 }
 
@@ -80,20 +80,21 @@ impl ZenohSession {
         godot_print!("Client ZID: {}", zid);
 
         let peer_id = if zid.len() >= 8 {
-            let last8 = &zid[zid.len()-8..];
+            let last8 = &zid[zid.len() - 8..];
             i64::from_str_radix(last8, 16).unwrap_or_else(|_| 2)
         } else {
             2
         };
 
-        godot_print!("Zenoh CLIENT ready - Peer ID: {}, Game: {}", peer_id, game_id);
+        godot_print!(
+            "Zenoh CLIENT ready - Peer ID: {}, Game: {}",
+            peer_id,
+            game_id
+        );
 
         Ok(ZenohSession {
             session,
-            runtime: Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            runtime: Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
@@ -142,14 +143,14 @@ impl ZenohSession {
         };
 
         // Server gets fixed peer ID 1 (Godot convention)
-        godot_print!("Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}", game_id);
+        godot_print!(
+            "Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}",
+            game_id
+        );
 
         Ok(ZenohSession {
             session,
-            runtime: Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            runtime: Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap(),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,

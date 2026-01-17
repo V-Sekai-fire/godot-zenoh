@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Godot GDExtension bindings
-godot = {git = "https://github.com/godot-rust/gdext.git", features = ["register-docs", "api-4-4"]}
+godot = {git = "https://github.com/godot-rust/gdext.git", features = ["register-docs", "api-4-4", "experimental-threads"]}
 
 zenoh = "1.7.2"
 zenoh-config = "1.0"
