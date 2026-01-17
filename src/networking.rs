@@ -292,8 +292,8 @@ impl ZenohSession {
         // Get session information (synchronous call)
         let session_info = self.session.info();
 
-        // Extract HLC-like timestamp from session info
-        let hlc_timestamp = format!("HLC:PID{}:TIME{}", session_info.server_pid().unwrap_or(0), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos());
+        // Extract HLC-like timestamp using system time and process ID for distributed coordination
+        let hlc_timestamp = format!("HLC:PID{}:TIME{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
 
         godot_print!("Zenoh HLC timestamp: {}", hlc_timestamp);
         Ok(hlc_timestamp)
