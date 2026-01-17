@@ -8,11 +8,14 @@ var is_host: bool = false
 
 var countdown_number: int = 10
 var last_received_count: int = -1
+var is_counting_down: bool = false
 
 var button: Button
 var label: Label
 var host_button: Button
 var join_button: Button
+
+var countdown_timer: Timer
 
 func _ready():
 	print("Pong Test Starting...")
@@ -86,7 +89,14 @@ func _on_join_pressed():
 
 func setup_networking():
 	print("Networking setup complete")
-	button.disabled = false
+
+	# Start ping pong countdown after a brief delay
+	var start_timer = Timer.new()
+	start_timer.one_shot = true
+	start_timer.wait_time = 2.0  # Wait 2 seconds after connecting
+	start_timer.connect("timeout", Callable(self, "_on_ping_pong_start"))
+	add_child(start_timer)
+	start_timer.start()
 
 	# Set up polling timer
 	var timer = Timer.new()
@@ -94,6 +104,27 @@ func setup_networking():
 	timer.wait_time = 0.1  # Poll every 100ms
 	timer.connect("timeout", Callable(self, "_on_poll_timeout"))
 	add_child(timer)
+
+	# Set up countdown timer (2 second intervals)
+	countdown_timer = Timer.new()
+	countdown_timer.autostart = false
+	countdown_timer.one_shot = true
+	countdown_timer.wait_time = 2.0
+	countdown_timer.connect("timeout", Callable(self, "_on_countdown_tick"))
+	add_child(countdown_timer)
+
+func _on_ping_pong_start():
+	if is_host:
+		# Host starts the countdown
+		print("Starting ping pong countdown as host")
+		label.text = "Starting countdown..."
+		is_counting_down = true
+		countdown_number = 10
+		_send_count()
+		countdown_timer.start()
+	else:
+		# Client waits to receive first message
+		label.text = "Waiting for host to start..."
 
 func _on_send_pressed():
 	# Send countdown number
@@ -109,6 +140,27 @@ func _on_send_pressed():
 		countdown_number -= 1
 		button.text = "Send " + str(countdown_number) + " to Other Player"
 
+func _send_count():
+	# Send current countdown number
+	var message = "COUNT:" + str(countdown_number)
+	var data = PackedByteArray()
+	data.append_array(message.to_utf8_buffer())
+
+	zenoh_peer.put_packet(data)
+	print("Sent: " + message)
+	label.text = "Sent: " + str(countdown_number) + " to Player " + str(get_other_player_id())
+
+func _on_countdown_tick():
+	if countdown_number > 0 and is_counting_down:
+		countdown_number -= 1
+		_send_count()
+		countdown_timer.start()  # Continue countdown
+	else:
+		# Countdown finished
+		is_counting_down = false
+		print("Countdown finished!")
+		label.text = "Countdown finished! Ping pong complete."
+
 func _on_poll_timeout():
 	# Poll for network messages
 	zenoh_peer.poll()
@@ -121,15 +173,23 @@ func _on_poll_timeout():
 		var message = data.get_string_from_utf8()
 		print("Received: " + message)
 
-		# Update display
-		label.text = "Received: " + message
-
 		# Handle countdown message
 		if message.begins_with("COUNT:"):
 			var count_str = message.substr(6)
 			var count = int(count_str)
 			last_received_count = count
-			label.text = "Received count: " + str(count) + " from Player " + str(get_other_player_id())
+
+			# Reset and start counting down from 10
+			countdown_number = 10
+			is_counting_down = true
+
+			label.text = "Received: " + str(count) + " - Resetting to 10..."
+			print("Received count, resetting countdown to 10")
+
+			# Stop any existing countdown and start new one
+			countdown_timer.stop()
+			_send_count()
+			countdown_timer.start()
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
