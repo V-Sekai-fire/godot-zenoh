@@ -105,3 +105,9 @@ func send_event(event_type, event_data = {}):
 	var message = event_data.duplicate()
 	message["type"] = event_type
 	handle_cast(message, state_data)
+
+func get_state():
+	return current_state
+
+func get_data():
+	return state_data.duplicate()
