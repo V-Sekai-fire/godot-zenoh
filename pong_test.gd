@@ -151,7 +151,7 @@ func _send_count():
 	data.append_array(message.to_utf8_buffer())
 
 	zenoh_peer.put_packet(data)
-	print("Sent: " + message)
+	print("Player " + str(zenoh_peer.get_unique_id()) + " Sent: " + message + " to Player " + str(get_other_player_id()))
 	label.text = "Sent: " + str(countdown_number) + " to Player " + str(get_other_player_id()) + " (waiting for ack)"
 
 func _on_countdown_tick():
@@ -176,12 +176,12 @@ func _on_poll_timeout():
 			var count_str = data_string.substr(6)
 			var count = int(count_str)
 
-			print("DEBUG: Received COUNT:" + str(count) + " from other player")
+			print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(get_other_player_id()))
 
 			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
 			if countdown_number > 0:
 				label.text = "Received: " + str(count) + " - Preparing response..."
-				print("Acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
+				print("Player " + str(zenoh_peer.get_unique_id()) + " acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
 
 				# Wait 1 second before responding (doesn't block the polling)
 				var response_timer = Timer.new()
