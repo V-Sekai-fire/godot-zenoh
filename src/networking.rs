@@ -231,6 +231,20 @@ impl ZenohSession {
                     .callback(move |sample| {
                         // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
                         // Zenoh sends to ALL subscribers including sender - filter self-messages at network level
+                        // Zenoh automatically provides HLC timestamp for causal ordering
+
+                        // Extract Zenoh's automatic HLC timestamp
+                        if let Some(timestamp) = sample.timestamp() {
+                            let seconds = timestamp.get_time().as_secs();
+                            let fraction_and_counter = timestamp.get_time().subsec_nanos();
+
+                            godot_print!(
+                                "🕐 Zenoh HLC Timestamp: Seconds:{}, Subsec:{}, Router:{}",
+                                seconds,
+                                fraction_and_counter,
+                                timestamp.get_id()
+                            );
+                        }
 
                         let payload_bytes = sample.payload().to_bytes();
                         let full_data: Vec<u8> = payload_bytes.to_vec();
