@@ -318,11 +318,16 @@ func reset_tic_tac_toe_game():
 func _on_tic_tac_toe_poll():
 	zenoh_peer.poll()
 
-	# Handle peer assignments for followers
-	if not is_host and (my_symbol == "" or my_symbol == "WAITING"):
-		my_symbol = "O" # Followers get O
-		if label:
-			label.text = "FOLLOWER: I am O - waiting for X to move..."
+	# Handle peer assignments based on ELECTION results, not connection type
+	if my_symbol == "" or my_symbol == "WAITING":
+		if my_election_id == current_leader_id:
+			my_symbol = "X"  # I won the election, I start as X
+			if label:
+				label.text = "LEADER: I am X - starting the game"
+		else:
+			my_symbol = "O"  # I lost the election, I am O
+			if label:
+				label.text = "FOLLOWER: I am O - waiting for X to move"
 
 	# Process game messages
 	while zenoh_peer.get_available_packet_count() > 0:
@@ -333,11 +338,7 @@ func _on_tic_tac_toe_poll():
 func _process_tic_tac_toe_message(msg: String):
 	if msg.begins_with("GAME_START:"):
 		var parts = msg.split(":")
-		if not is_host and my_symbol == "":
-			my_symbol = "O"  # Leaders get X, followers get O
-			print("🎯 Game started! I am O (follower)")
-			if label:
-				label.text = "FOLLOWER: Game started - waiting for X to move..."
+		print("🎯 Game start received! My symbol is: " + my_symbol)
 		print_board()
 
 	elif msg.begins_with("GAME_MOVE:"):
@@ -365,8 +366,10 @@ func _process_tic_tac_toe_message(msg: String):
 					if label:
 						label.text = "TURN: " + current_player + " to move"
 
-					# 🔥 ALWAYS AUTO-PLAY WHEN IT'S OUR TURN! (check immediately after any move)
-					call_deferred("_check_and_make_auto_move")
+					# 🔥 FORCE AUTO-PLAY FOR NEXT PLAYER! (call every time to ensure O moves)
+					print("🔥 DEBUG: About to call auto-move check - ensuring O plays!")
+					_check_and_make_auto_move()
+					print("🔥 DEBUG: Auto-move check completed")
 
 func _apply_game_move(player_symbol: String, position: int) -> bool:
 	# Validate move
@@ -484,6 +487,8 @@ func _make_first_move_immediately():
 
 func _check_and_make_auto_move():
 	# 🔥 Check if it's our turn and make a move automatically
+	print("🔍 DEBUG: Checking auto-move - current_player=" + current_player + ", my_symbol=" + my_symbol + ", game_over=" + str(game_over))
+
 	if current_player == my_symbol and not game_over:
 		button.disabled = false
 		if label:
@@ -496,6 +501,8 @@ func _check_and_make_auto_move():
 		button.disabled = true
 		if not game_over:
 			print("⏳ Waiting for " + current_player + " to move - current player is " + current_player + ", I am " + my_symbol)
+		else:
+			print("🏆 Game finished")
 
 func _get_best_move() -> int:
 	# Simple AI: Find empty positions, prefer winning/critical positions
