@@ -148,18 +148,11 @@ func _send_count():
 
 	zenoh_peer.put_packet(data)
 	print("Sent: " + message)
-	label.text = "Sent: " + str(countdown_number) + " to Player " + str(get_other_player_id())
+	label.text = "Sent: " + str(countdown_number) + " to Player " + str(get_other_player_id()) + " (waiting for ack)"
 
 func _on_countdown_tick():
-	if countdown_number > 0 and is_counting_down:
-		countdown_number -= 1
-		_send_count()
-		countdown_timer.start()  # Continue countdown
-	else:
-		# Countdown finished
-		is_counting_down = false
-		print("Countdown finished!")
-		label.text = "Countdown finished! Ping pong complete."
+	# Automatic countdown disabled - only send when ack received
+	pass
 
 func _on_poll_timeout():
 	# Poll for network messages
@@ -174,25 +167,26 @@ func _on_poll_timeout():
 		print("DEBUG: Received packet with length " + str(data.size()) + " bytes")
 		print("DEBUG: Packet content: '" + data_string + "'")
 
-		# Handle countdown message
+		# Handle countdown message from other player
 		if data_string.begins_with("COUNT:"):
 			var count_str = data_string.substr(6)
 			var count = int(count_str)
-			last_received_count = count
 
-			print("DEBUG: Parsed count = " + str(count) + " from '" + count_str + "'")
+			print("DEBUG: Received COUNT:" + str(count) + " from other player")
 
-			# Reset and start counting down from 10
-			countdown_number = 10
-			is_counting_down = true
-
-			label.text = "Received: " + str(count) + " - Resetting to 10..."
-			print("Received count, resetting countdown to 10")
-
-			# Stop any existing countdown and start new one
-			countdown_timer.stop()
-			_send_count()
-			countdown_timer.start()
+			# Acknowledge receipt by decrementing and sending next number
+			if countdown_number > 0:
+				countdown_number -= 1
+				if countdown_number == 0:
+					label.text = "Received: " + str(count) + " - Game over!"
+					print("Countdown complete!")
+				else:
+					label.text = "Received: " + str(count) + " - Sending: " + str(countdown_number)
+					print("Acknowledging receipt - sending countdown: " + str(countdown_number))
+					_send_count()
+					# Don't start auto timer - wait for next receipt
+			else:
+				label.text = "Game already finished"
 		else:
 			print("DEBUG: Received non-COUNT message: '" + data_string + "'")
 
