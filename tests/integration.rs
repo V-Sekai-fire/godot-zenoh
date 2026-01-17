@@ -10,6 +10,7 @@ mod tic_tac_toe_state_machine_tests {
         println!("🧪 Testing HLC-based timing validation for Tic-Tac-Toe state transitions");
 
         // Simulate the HLC timing logic from pong_test.gd
+        #[allow(unused_assignments)]
         let mut last_x_move_hlc_timestamp: i64 = 0;
         let hlc_turn_threshold: i64 = 50000; // 50ms buffer
         let current_hlc = 100000; // Simulate current time
@@ -42,6 +43,7 @@ mod tic_tac_toe_state_machine_tests {
 
         // Simulate election states (from pong_test.gd ElectionState enum)
         #[derive(Debug, PartialEq)]
+        #[allow(dead_code)] // Contains unused variants for testing state validation
         enum ElectionState {
             Disconnected,
             WaitingConnections,
@@ -50,7 +52,7 @@ mod tic_tac_toe_state_machine_tests {
             CollectingPeers,
             DecidingLeader,
             VictoryBroadcasting,
-            VictoryListening,
+            #[allow(dead_code)] VictoryListening, // Unused in this test but part of complete state machine
             Finalized,
         }
 
@@ -234,6 +236,7 @@ mod tic_tac_toe_state_machine_tests {
 
         #[derive(Debug)]
         struct BarrierState {
+            #[allow(unused_assignments)] // Field used for validation but not directly accessed
             total_participants: i32,
             victory_acknowledgments: i32,
             expected_acknowledgments: i32,
