@@ -6,10 +6,16 @@ var zenoh_peer: ZenohMultiplayerPeer
 var my_id: int = -1
 var is_host: bool = false
 
-var countdown_number: int = 10
-var last_received_count: int = -1
-var is_counting_down: bool = false
-var transfer_mode: int = 0  # 0 = Server relay mode, 1 = Direct pub/sub
+# 🔥 DISTRIBUTED TIC-TAC-TOE: Concurrency Demo Game
+var game_mode: int = 1  # 0 = Countdown, 1 = TicTacToe Demo
+
+# Tic-Tac-Toe Game State
+var board = ["","","","","","","","",""]  # 3x3 board: ""=empty, "X", "O"
+var current_player: String = "X"         # "X" or "O"
+var game_over: bool = false
+var winner: String = ""                  # "X", "O", or "DRAW"
+var my_symbol: String = ""               # Assigned during game start
+var moves_made: int = 0                  # Total moves played
 
 var button: Button
 var label: Label
@@ -136,12 +142,18 @@ func setup_ui():
 	peer_label.text = "Peer ID: Not connected | Role: Unknown | State: " + get_state_text(connection_state)
 	vbox.add_child(peer_label)
 
-	# Send button
+	# Send button - now for Tic-Tac-Toe moves
 	button = Button.new()
-	button.text = "Send Countdown"
+	button.text = "Make Tic-Tac-Toe Move"
 	button.disabled = true
-	button.connect("pressed", Callable(self, "_on_send_pressed"))
+	button.connect("pressed", Callable(self, "_on_make_move"))
 	vbox.add_child(button)
+
+	# Instructions label
+	var instructions = Label.new()
+	instructions.text = "🎮 Tic-Tac-Toe: Leader is X, others are O\nWait for election to complete, then make moves in turn order"
+	instructions.modulate = Color.ORANGE
+	vbox.add_child(instructions)
 
 	# HLC Timestamp Request Button
 	var hlc_button = Button.new()
@@ -265,19 +277,235 @@ func _on_send_pressed():
 		countdown_number -= 1
 		button.text = "Send " + str(countdown_number) + " to Other Player"
 
-func _send_count():
-	# Send simple countdown message (Merkle hash tracking removed)
-	var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id())
+func setup_tic_tac_toe_networking():
+	print("🎮 Tic-Tac-Toe networking setup complete")
+
+	# Initialize Tic-Tac-Toe game state
+	reset_tic_tac_toe_game()
+
+	# Start polling for game messages
+	var timer = Timer.new()
+	timer.autostart = true
+	timer.wait_time = 0.1  # Poll every 100ms
+	timer.connect("timeout", Callable(self, "_on_tic_tac_toe_poll"))
+	add_child(timer)
+
+	# Leader starts the game by announcing X goes first
+	if is_host:
+		_announce_game_start()
+
+func _announce_game_start():
+	print("🎯 Announcing Tic-Tac-Toe game start - X goes first")
+	var start_msg = "GAME_START:" + str(current_leader_id) + ":LEADER_IS_X:FOLLOWERS_ARE_O"
 	var data = PackedByteArray()
-	data.append_array(message.to_utf8_buffer())
+	data.append_array(start_msg.to_utf8_buffer())
+	zenoh_peer.put_packet(data)
 
-	# Send immediately - no hash tracking
-	var result = zenoh_peer.put_packet(data)
+	print("Waiting for followers to join game...")
 
-	print("Player " + str(zenoh_peer.get_unique_id()) + " sent: " + message)
+func reset_tic_tac_toe_game():
+	# Reset game state
+	board = ["","","","","","","","",""]
+	current_player = "X"
+	game_over = false
+	winner = ""
+	moves_made = 0
+	print("🔄 Tic-Tac-Toe game reset")
+	print_board()
 
+func _on_tic_tac_toe_poll():
+	zenoh_peer.poll()
+
+	# Handle peer assignments for followers
+	if not is_host and (my_symbol == "" or my_symbol == "WAITING"):
+		_my_symbol = "O" # Followers get O
+		if label:
+			label.text = "FOLLOWER: I am O - waiting for X to move..."
+
+	# Process game messages
+	while zenoh_peer.get_available_packet_count() > 0:
+		var data = zenoh_peer.get_packet()
+		var msg = data.get_string_from_utf8()
+		_process_tic_tac_toe_message(msg)
+
+func _process_tic_tac_toe_message(msg: String):
+	if msg.begins_with("GAME_START:"):
+		var parts = msg.split(":")
+		if not is_host and my_symbol == "":
+			my_symbol = "O"  # Leaders get X, followers get O
+			print("🎯 Game started! I am O (follower)")
+			if label:
+				label.text = "FOLLOWER: Game started - waiting for X to move..."
+		print_board()
+
+	elif msg.begins_with("GAME_MOVE:"):
+		var parts = msg.split(":")
+		if parts.size() >= 4:
+			var move_player = parts[1]
+			var move_position = int(parts[2])
+			var from_id = parts[3]
+
+			print("📝 Received move from " + str(from_id) + ": " + move_player + " at position " + str(move_position))
+
+			# Apply the move and update game state
+			if _apply_game_move(move_player, move_position):
+				print("✅ Move applied successfully")
+				print_board()
+
+				# Check for game end
+				if game_over:
+					_handle_game_end()
+				else:
+					# Switch turns
+					current_player = "O" if current_player == "X" else "X"
+					print("Next turn: " + current_player)
+
+					if label:
+						label.text = "TURN: " + current_player + " to move"
+
+					# Enable move button if it's our turn
+					if current_player == my_symbol and not game_over:
+						button.disabled = false
+						if label:
+							label.text = "YOUR TURN: Make Tic-Tac-Toe move (" + my_symbol + ")"
+					else:
+						button.disabled = true
+
+func _apply_game_move(player_symbol: String, position: int) -> bool:
+	# Validate move
+	if position < 0 or position >= 9:
+		print("❌ Invalid position: " + str(position))
+		return false
+	if board[position] != "":
+		print("❌ Position already occupied: " + str(position))
+		return false
+	if game_over:
+		print("❌ Game is over")
+		return false
+	if current_player != player_symbol:
+		print("❌ Wrong turn - expected " + current_player + ", got " + player_symbol)
+		return false
+
+	# Apply move
+	board[position] = player_symbol
+	moves_made += 1
+	print("🔄 Applied move: " + player_symbol + " at position " + str(position))
+
+	# Check for winner
+	var game_result = check_winner()
+	if game_result != "":
+		game_over = true
+		winner = game_result
+		print("🏆 Game Over: " + game_result)
+
+	return true
+
+func check_winner() -> String:
+	# Check rows
+	for i in range(3):
+		if board[i*3] != "" and board[i*3] == board[i*3+1] and board[i*3+1] == board[i*3+2]:
+			return board[i*3]
+
+	# Check columns
+	for i in range(3):
+		if board[i] != "" and board[i] == board[i+3] and board[i+3] == board[i+6]:
+			return board[i]
+
+	# Check diagonals
+	if board[0] != "" and board[0] == board[4] and board[4] == board[8]:
+		return board[0]
+	if board[2] != "" and board[2] == board[4] and board[4] == board[6]:
+		return board[2]
+
+	# Check for draw
+	if moves_made >= 9:
+		return "DRAW"
+
+	return ""  # No winner yet
+
+func print_board():
+	print("📋 Tic-Tac-Toe Board (moves: " + str(moves_made) + ", current: " + current_player + ")")
+	print("   " + str(board[0]) + " │ " + str(board[1]) + " │ " + str(board[2]))
+	print("   ──┼───┼──")
+	print("   " + str(board[3]) + " │ " + str(board[4]) + " │ " + str(board[5]))
+	print("   ──┼───┼──")
+	print("   " + str(board[6]) + " │ " + str(board[7]) + " │ " + str(board[8]))
+
+func _handle_game_end():
+	print("🏁 Game ended with result: " + winner)
 	if label:
-		label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
+		label.text = "GAME OVER: " + winner
+
+	# Broadcast game end
+	var end_msg = "GAME_END:" + winner
+	var data = PackedByteArray()
+	data.append_array(end_msg.to_utf8_buffer())
+	zenoh_peer.put_packet(data)
+
+func _on_make_move():
+	# 🔥 DEMO: Make a Tic-Tac-Toe move (leader coordinates the game)
+	if game_over:
+		print("❌ Game is over - no more moves")
+		return
+
+	# Simulate a reasonable move (best available position)
+	var move_position = _get_best_move()
+	if move_position == -1:
+		print("❌ No valid moves available")
+		return
+
+	# Broadcast the move to all participants
+	var move_msg = "GAME_MOVE:" + my_symbol + ":" + str(move_position) + ":" + str(zenoh_peer.get_unique_id())
+	var data = PackedByteArray()
+	data.append_array(move_msg.to_utf8_buffer())
+
+	var result = zenoh_peer.put_packet(data)
+	if result == 0:
+		print("✅ Sent Tic-Tac-Toe move: " + my_symbol + " at position " + str(move_position))
+		button.disabled = true
+
+		# Apply the move locally immediately for responsiveness
+		_apply_game_move(my_symbol, move_position)
+
+		if not game_over:
+			print_board()
+			if label:
+				label.text = "TURN: " + current_player + " (You sent to " + ("X" if my_symbol == "O" else "O") + ")"
+
+func _get_best_move() -> int:
+	# Simple AI: Find empty positions, prefer winning/critical positions
+	var possible_moves = []
+
+	# Check if we can win immediately
+	for i in range(9):
+		if board[i] == "":
+			board[i] = my_symbol
+			if check_winner() == my_symbol:
+				board[i] = ""  # Undo
+				return i
+			board[i] = ""  # Undo
+
+	# Block opponent wins
+	var opponent = "O" if my_symbol == "X" else "X"
+	for i in range(9):
+		if board[i] == "":
+			board[i] = opponent
+			if check_winner() == opponent:
+				board[i] = ""  # Undo
+				return i
+			board[i] = ""  # Undo
+
+	# Prefer center and corners
+	var priorities = [4, 0, 2, 6, 8, 1, 3, 5, 7]
+	for pos in priorities:
+		if board[pos] == "":
+			return pos
+
+	return -1  # No moves available
+
+func _send_count():
+	# 🚫 DISABLED: Old countdown logic replaced by Tic-Tac-Toe
+	pass
 
 func _on_countdown_tick():
 	# Automatic countdown disabled - only send when ack received
@@ -740,16 +968,20 @@ func restart_election_with_timeout_extension():
 
 func complete_leader_election_as_leader():
 	# Change to server mode
-	print("Election complete - starting server for followers")
+	print("🎮 Election complete - starting TIC-TAC-TOE server for followers")
 	leader_election_phase = false
 	connection_state = STATE_SERVER_READY
 	is_host = true
 
-	if label:
-		label.text = "LEADER: Waiting for followers..."
+	# 🔥 I AM X (first player) - leader always gets X!
+	my_symbol = "X"
+	print("🎯 I am X (leader/first player) in Tic-Tac-Toe game")
 
-	# Setup normal networking (leader is ready to start game)
-	setup_networking()
+	if label:
+		label.text = "LEADER: Waiting for Tic-Tac-Toe opponents..."
+
+	# Setup networking and initialize game
+	setup_tic_tac_toe_networking()
 
 func complete_leader_election_as_follower():
 	# Switch to client mode to connect to the elected leader
