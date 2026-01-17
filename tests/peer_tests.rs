@@ -249,34 +249,66 @@ mod property_tests {
 
         #[test]
         fn test_channel_workload_simulation(
-            low_channel_packets in prop::collection::vec(prop::collection::vec(0..=255u8, 1..10), 10..50),
-            high_channel_packets in prop::collection::vec(prop::collection::vec(0..=255u8, 1..10), 100..200)
+            low_channel_count in 5..25usize,
+            high_channel_count in 50..100usize
         ) {
             let peer = TestPeer::new();
 
-            // Simulate high workload on high channel (channel 255)
-            for packet in &high_channel_packets {
-                peer.add_packet_to_channel(255, packet.clone());
+            // Simulate HOL blocking scenario: high channel load should not block low channel
+            // Add many packets to high-numbered channel (255) - start with channel ID for uniqueness
+            for i in 0..high_channel_count {
+                let packet_data = vec![255u8, i as u8]; // Channel 255 + index for uniqueness
+                peer.add_packet_to_channel(255, packet_data);
             }
 
-            // Add some packets to low channel (channel 0)
-            for packet in &low_channel_packets {
-                peer.add_packet_to_channel(0, packet.clone());
+            // Add packets to low-numbered channel (0) - should get priority
+            for i in 0..low_channel_count {
+                let packet_data = vec![0u8, i as u8]; // Channel 0 + index for uniqueness
+                peer.add_packet_to_channel(0, packet_data);
             }
 
-            // Low channel packets should always be served first (HOL blocking prevention)
-            let total_low_packets = low_channel_packets.len();
+            // HOL blocking prevention: Low channel (0) packets should be served first
+            // Verify that all low channel packets are retrieved before any high channel packets
             let mut buffer = vec![0u8; 10];
+            let mut low_packets_received = 0;
+            let mut high_packets_received = 0;
 
-            for i in 0..total_low_packets.min(5) {  // Check first few packets
-                peer.get_packet(buffer.as_mut_slice()).unwrap();
-                // Should be from low channel (channel 0)
-                prop_assert_eq!(buffer[0], 0, "Received packet from wrong channel in HOL test");
+            // Retrieve packets and track source channels
+            for _ in 0..(low_channel_count + high_channel_count.min(25)) {
+                if peer.get_packet(buffer.as_mut_slice()).is_ok() {
+                    let channel_id = buffer[0] as i32;
+
+                    match channel_id {
+                        0 => {
+                            // This is a low channel packet
+                            low_packets_received += 1;
+                            // Ensure we haven't received any high channel packets yet
+                            prop_assert!(high_packets_received == 0,
+                                "HOL violation: Received high channel packet before all low channel packets");
+                        }
+                        255 => {
+                            // This is a high channel packet
+                            high_packets_received += 1;
+                            // Only allow high channel packets after all low channel packets are served
+                            prop_assert!(low_packets_received == low_channel_count,
+                                "HOL violation: Received high channel packet while low channel still has packets");
+                        }
+                        _ => prop_assert!(false, "Unexpected channel ID in packet: {}", channel_id),
+                    }
+                } else {
+                    // No more packets to retrieve
+                    break;
+                }
             }
+
+            // Verify we received exactly the right number of packets from each channel
+            prop_assert_eq!(low_packets_received, low_channel_count,
+                "Incorrect number of low channel packets received");
+            // Note: We may not receive all high channel packets in this test due to size limits
         }
 
         #[test]
-        fn test_fifo_within_channel(packets in prop::collection::vec(prop::collection::vec(0..=255u8, 3..8), 2..20)) {
+        fn test_fifo_within_channel(packets in prop::collection::vec(prop::collection::vec(1..=255u8, 3..8), 2..20)) {
             let peer = TestPeer::new();
             let channel = 42;
 
@@ -288,13 +320,14 @@ mod property_tests {
             }
 
             // Retrieve all packets - should maintain FIFO order
+            // Use a buffer larger than any packet
             let mut received_packets = Vec::new();
-            let mut buffer = vec![0u8; 10];
+            let mut buffer = vec![0u8; 100];
 
-            for _ in 0..packets.len() {
+            for packet in &sent_packets {
                 peer.get_packet(buffer.as_mut_slice()).unwrap();
-                let received_len = buffer.iter().position(|&x| x == 0).unwrap_or(buffer.len());
-                received_packets.push(buffer[..received_len].to_vec());
+                // Copy exactly the packet data (up to the packet length)
+                received_packets.push(buffer[..packet.len()].to_vec());
             }
 
             // Should receive packets in exact order sent
