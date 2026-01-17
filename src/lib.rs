@@ -1,17 +1,21 @@
 // GDExtension entry point
-use godot::prelude::*;
-
-#[gdextension]
-unsafe impl godot::init::ExtensionLibrary for ZenohExtension {
-    fn on_level_init(level: godot::init::InitLevel) {
-        if level == godot::init::InitLevel::Scene {
-            godot::register_class::<ZenohMultiplayerPeer>();
-        }
-    }
-}
+use godot::init::gdextension;
 
 pub mod networking;
 pub mod peer;
 pub mod raft_consensus;
+// mod extension;  // Not needed for current implementation
 
 pub use peer::*;
+// pub use extension::*;  // Not needed for current implementation
+
+// Make the ZenohMultiplayerPeer class visible for gdextension registration
+pub use peer::ZenohMultiplayerPeer;
+
+// Register the extension with Godot
+#[gdextension]
+unsafe impl godot::init::ExtensionLibrary for ZenohExtension {
+    // Extension library initialization - uses default implementations for compatibility
+}
+
+pub struct ZenohExtension;

@@ -19,22 +19,9 @@ var join_button: Button
 var countdown_timer: Timer
 
 # RAFT CONSENSUS STATE
-# Note: Raft consensus is implemented in Rust but not exposed to Godot yet
-# For testing, we'll demonstrate the concepts through basic networking
-var raft_test_mode: bool = false       # Whether we're testing Raft concepts
+var raft_consensus: ZenohRaftConsensus = null
 var election_timer: Timer              # Timer for election completion
 var leader_election_phase: bool = false  # Whether we're in election phase
-var raft_vote_count: int = 0           # Simulated Raft votes
-var raft_term: int = 0                 # Current election term
-
-# LEADER ELECTION STATE VARIABLES
-var known_peers = []                   # Discovered peer IDs array
-# = {
-# 	"VOTE_REQUEST": 1,
-# 	"VOTE_RESPONSE": 2,
-# 	"APPEND_ENTRIES": 3,
-# 	"HEARTBEAT": 4
-# }
 
 # Connection state machine constants (integer enum)
 const STATE_DISCONNECTED = 0
@@ -154,24 +141,6 @@ func setup_ui():
 	hlc_button.modulate = Color.CYAN
 	hlc_button.connect("pressed", Callable(self, "_on_hlc_request_pressed"))
 	vbox.add_child(hlc_button)
-
-	# RAFT CONSENSUS TESTING
-	var raft_separator = HSeparator.new()
-	vbox.add_child(raft_separator)
-
-	var raft_label = Label.new()
-	raft_label.text = "🚀 RAFT CONSENSUS SYSTEM READY"
-	raft_label.modulate = Color.GREEN_YELLOW
-	vbox.add_child(raft_label)
-
-	var raft_info = Label.new()
-	raft_info.text = "Raft Consensus: ✓ Compiled ✓ Core Implementation ✓ Leader Election Framework"
-	vbox.add_child(raft_info)
-
-	var raft_status = Label.new()
-	raft_status.text = "Status: Ready for Multiplayer Consensus"
-	raft_status.modulate = Color.LIGHT_GREEN
-	vbox.add_child(raft_status)
 
 func _on_host_pressed():
 	print("Starting as host...")
@@ -323,23 +292,20 @@ func _on_poll_timeout():
 	zenoh_peer.poll()
 
 	# Handle connection completion during leader election
-	if leader_election_phase and zenoh_peer.connection_status() == 2:
-		var was_disconnected = (my_id == -1)
+	if leader_election_phase and my_id == -1 and zenoh_peer.connection_status() == 2:
+		my_id = zenoh_peer.get_unique_id()
+		var zid = zenoh_peer.get_zid()
+		print("Connection completed in election - ID: " + str(my_id) + " | ZID: " + zid)
 
-		if was_disconnected:
-			my_id = zenoh_peer.get_unique_id()
-			var zid = zenoh_peer.get_zid()
-			print("Connection completed in election - ID: " + str(my_id) + " | ZID: " + zid)
+		# Signal to all participants that final election phase should begin
+		print("📢 Broadcasting final election signal - I now have real peer ID #" + str(my_id))
+		signal_final_election()
 
-			# Signal to all participants that final election phase should begin
-			print("📢 Broadcasting final election signal - I now have real peer ID #" + str(my_id))
-			signal_final_election()
+		# Restart election in final phase (wait short time for signals)
+		restart_election_with_real_id()
 
-			# Update UI immediately after getting ID
-			update_peer_info()
-
-		# Trigger immediate election state check
-		perform_election_check()
+		# Update UI
+		update_peer_info()
 
 	# Check for received packets
 	while zenoh_peer.get_available_packet_count() > 0:
@@ -577,26 +543,24 @@ func signal_final_election():
 func _on_election_timeout():
 	print("Election timeout - analyzing " + str(known_peers.size()) + " discovered peers")
 
-	# Final poll to ensure we have latest connection state
-	zenoh_peer.poll()
+	var real_peers = []
 
-	# Force refresh of my_id from Zenoh peer if still -1
-	if my_id == -1 and zenoh_peer.connection_status() == 2:
-		my_id = zenoh_peer.get_unique_id()
-		print("REFRESHED my_id in election timeout: " + str(my_id))
+	# Collect only real peer IDs (normal integer ranges, not timestamp-based)
+	for peer_id in known_peers:
+		if peer_id < 1000:  # Zenoh peer IDs are usually < 1000
+			real_peers.append(peer_id)
 
-	# Use known peers array - these are the actual connected peer IDs
-	var current_peers = [] + known_peers  # Copy array
-	var current_status = zenoh_peer.connection_status()
+	# Include our own real ID if available
+	if my_id != -1 and my_id < 1000:
+		real_peers.append(my_id)
 
-	print("Known peers for election (real Zenoh IDs): " + str(current_peers))
-	print("My ID: " + str(my_id) + ", Status: " + str(current_status))
+	print("Real peers collected: " + str(real_peers))
 
-	if current_peers.size() >= 1:  # Minimum quorum of 1 for now
-		# We have enough peers to elect a leader
-		current_peers.sort()
-		var leader_id = current_peers[0]
-		print("🏆 ELECTION COMPLETE: Lowest ID leader is #" + str(leader_id))
+	if real_peers.size() > 0:
+		# Complete election with all known real IDs
+		real_peers.sort()
+		var leader_id = real_peers[0]
+		print("� ELECTION COMPLETE: Lowest real ID leader is #" + str(leader_id))
 
 		if leader_id == my_id:
 			print("✅ I WON THE ELECTION - becoming server leader")
@@ -604,8 +568,14 @@ func _on_election_timeout():
 		else:
 			print("✅ Election over - connecting as client to leader #" + str(leader_id))
 			complete_leader_election_as_follower()
+
+	elif my_id == -1:
+		# Still using temporary ID - extend election
+		print("🔄 Still using temporary ID - extending election phase")
+		restart_election_with_timeout_extension()
 	else:
-		print("⏳ Not enough connected peers yet - extending election")
+		# Have real ID but no other real IDs yet - wait briefly for others to signal
+		print("⏳ Have real ID but waiting for other real participants...")
 		restart_election_with_timeout_extension()
 
 func restart_election_with_timeout_extension():
@@ -681,32 +651,6 @@ func restart_election_with_real_id():
 	election_timer.start()
 
 	print("Election restarted with real peer IDs - completing leader selection")
-
-func perform_election_check():
-	# Immediate check if we have enough peers for leader election
-	print("Performing immediate election check...")
-
-	var current_peers = []
-	if my_id != -1 and zenoh_peer.connection_status() == 2:  # Connected status
-		current_peers.append(my_id)
-		print("Including my connected ID: " + str(my_id))
-
-	print("Found " + str(current_peers.size()) + " connected peers")
-
-	# Trigger election completion if we have quorum
-	if current_peers.size() >= 1:
-		current_peers.sort()
-		var leader_id = current_peers[0]
-		print("🗳️ IMMEDIATE ELECTION: Lowest ID #" + str(leader_id) + " is leader")
-
-		if leader_id == my_id:
-			print("🎉 IMMEDIATE WIN - I am the leader! (#" + str(leader_id) + ")")
-			call_deferred("complete_leader_election_as_leader")
-		else:
-			print("👥 IMMEDIATE LOSS - Following leader #" + str(leader_id))
-			call_deferred("complete_leader_election_as_follower")
-	else:
-		print("⏳ Immediate election check - waiting for more peers")
 
 # MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
 func compute_state_hash() -> String:
