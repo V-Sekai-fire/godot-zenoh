@@ -174,21 +174,36 @@ func _on_poll_timeout():
 
 			print("DEBUG: Received COUNT:" + str(count) + " from other player")
 
-			# Acknowledge receipt by decrementing and sending next number
+			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
 			if countdown_number > 0:
-				countdown_number -= 1
-				if countdown_number == 0:
-					label.text = "Received: " + str(count) + " - Game over!"
-					print("Countdown complete!")
-				else:
-					label.text = "Received: " + str(count) + " - Sending: " + str(countdown_number)
-					print("Acknowledging receipt - sending countdown: " + str(countdown_number))
-					_send_count()
-					# Don't start auto timer - wait for next receipt
+				label.text = "Received: " + str(count) + " - Preparing response..."
+				print("Acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
+
+				# Wait 1 second before responding (doesn't block the polling)
+				var response_timer = Timer.new()
+				response_timer.one_shot = true
+				response_timer.wait_time = 1.0
+				response_timer.connect("timeout", Callable(self, "_delayed_response"))
+				add_child(response_timer)
+				response_timer.start()
 			else:
 				label.text = "Game already finished"
+
+func _delayed_response():
+	# This runs after 1 second delay
+	if countdown_number > 0:
+		countdown_number -= 1
+		if countdown_number == 0:
+			label.text = "GAME OVER!"
+			print("Countdown complete!")
 		else:
-			print("DEBUG: Received non-COUNT message: '" + data_string + "'")
+			label.text = "Responding with: " + str(countdown_number)
+			print("After 1 second - sending countdown: " + str(countdown_number))
+			_send_count()
+			# Wait for next receipt
+	# Timer cleans itself up
+	else:
+		print("DEBUG: Received non-COUNT message: '" + data_string + "'")
 
 	# Debug poll - remove this after testing
 	if packet_count == 0 and not is_host:
