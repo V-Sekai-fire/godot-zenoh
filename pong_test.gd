@@ -365,17 +365,8 @@ func _process_tic_tac_toe_message(msg: String):
 					if label:
 						label.text = "TURN: " + current_player + " to move"
 
-					# Enable move button if it's our turn
-					if current_player == my_symbol and not game_over:
-						button.disabled = false
-						if label:
-							label.text = "YOUR TURN: Make Tic-Tac-Toe move (" + my_symbol + ")"
-
-						# 🔥 AUTO-PLAY DEMO: ALL PLAYERS automatically make moves!
-						print("🎮 Auto-playing Tic-Tac-Toe move for " + my_symbol + " (turn: " + current_player + ")")
-						_on_make_move()
-					else:
-						button.disabled = true
+					# 🔥 ALWAYS AUTO-PLAY WHEN IT'S OUR TURN! (check immediately after any move)
+					call_deferred("_check_and_make_auto_move")
 
 func _apply_game_move(player_symbol: String, position: int) -> bool:
 	# Validate move
@@ -490,6 +481,21 @@ func _make_first_move_immediately():
 	# 🔥 CRITICAL FIX: Leader makes first X move immediately after announcing game!
 	print("🎮 LEADER: Making first move as X...")
 	_on_make_move()
+
+func _check_and_make_auto_move():
+	# 🔥 Check if it's our turn and make a move automatically
+	if current_player == my_symbol and not game_over:
+		button.disabled = false
+		if label:
+			label.text = "YOUR TURN: Auto-playing move (" + my_symbol + ")"
+
+		# Auto-play move immediately whenever it's our turn
+		print("🎮 AUTO-PLAYING: It's my turn (" + my_symbol + ") - making move now!")
+		_on_make_move()
+	else:
+		button.disabled = true
+		if not game_over:
+			print("⏳ Waiting for " + current_player + " to move - current player is " + current_player + ", I am " + my_symbol)
 
 func _get_best_move() -> int:
 	# Simple AI: Find empty positions, prefer winning/critical positions
