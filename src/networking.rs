@@ -9,7 +9,6 @@ use tokio::runtime::{Builder, Runtime};
 // For now using Vec<u8> - will replace with native ZBuf once located
 use zenoh::pubsub::Publisher;
 use zenoh::pubsub::Subscriber;
-use zenoh_config::{EndPoint, ModeDependentValue};
 
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
@@ -45,32 +44,21 @@ impl ZenohSession {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!("🎯 Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
 
-        // Configure Zenoh session with endpoint
-        let mut config = zenoh_config::Config::default();
-
+        // Set zenoh environment variable to connect to router
         if !address.is_empty() && port > 0 {
-            // Connect to specific Zenoh router endpoint via TCP (router listens on TCP)
             let tcp_endpoint = format!("tcp/{}:{}", address, port);
             godot_print!(
                 "🚀 Connecting Zenoh CLIENT to router via TCP: {}",
                 tcp_endpoint
             );
 
-            // Set TCP endpoint for router connection
-            let endpoint_str = format!("tcp/{}:{}", address, port);
-            if let Ok(endpoint) = endpoint_str.parse::<EndPoint>() {
-                config.connect.endpoints = ModeDependentValue::Unique(vec![endpoint]);
-            } else {
-                godot_print!(
-                    "⚠️ Failed to parse endpoint {}, falling back to defaults",
-                    endpoint_str
-                );
-            }
+            // Set environment variable for zenoh to connect to router
+            std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
         } else {
             godot_print!("🌐 Creating Zenoh CLIENT with default peer discovery");
         }
 
-        // Use default zenoh config for client connections
+        // Use default zenoh config - environment will control connection
         let zenoh_config = zenoh::Config::default();
         let session_result = zenoh::open(zenoh_config).await;
         let session = match session_result {
@@ -117,32 +105,21 @@ impl ZenohSession {
             port
         );
 
-        // Configure Zenoh session with endpoint to external router
-        let mut config = zenoh_config::Config::default();
-
+        // Set zenoh environment variable to connect to router
         if port > 0 {
-            // Connect to specific Zenoh router endpoint via TCP (router listens on TCP)
             let tcp_endpoint = format!("tcp/127.0.0.1:{}", port);
             godot_print!(
                 "🚀 Connecting Zenoh SERVER to router via TCP: {}",
                 tcp_endpoint
             );
 
-            // Set TCP endpoint for router connection
-            let endpoint_str = format!("tcp/127.0.0.1:{}", port);
-            if let Ok(endpoint) = endpoint_str.parse::<EndPoint>() {
-                config.connect.endpoints = ModeDependentValue::Unique(vec![endpoint]);
-            } else {
-                godot_print!(
-                    "⚠️ Failed to parse endpoint {}, falling back to defaults",
-                    endpoint_str
-                );
-            }
+            // Set environment variable for zenoh to connect to router
+            std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
         } else {
             godot_print!("🌐 Creating Zenoh SERVER with default peer discovery");
         }
 
-        // Use default zenoh config for server connections
+        // Use default zenoh config - environment will control connection
         let zenoh_config = zenoh::Config::default();
         let session_result = zenoh::open(zenoh_config).await;
         let session = match session_result {
