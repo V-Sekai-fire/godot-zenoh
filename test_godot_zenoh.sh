@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Simple Godot-Zenoh Networking Test Script
-echo "🎮 GODOT-ZENOH NETWORKING TEST SCRIPT"
-echo "===================================="
+# Godot-Zenoh Networking Test Script
+echo "Godot-Zenoh Networking Test"
+echo "==========================="
 echo
 
 # Check if zenohd is running
@@ -41,11 +41,11 @@ echo "Run Godot with:"
 echo "godot project.godot"
 echo
 echo "This will test:"
-echo "• ❤️ GDExtension loading"
-echo "• 🔧 Virtual channel configuration (0-255)"
-echo "• 📦 Packet sending/reception"
-echo "• 🛡️ HOL blocking prevention"
-echo "• 🌐 Real zenoh network communication"
+echo "- GDExtension loading"
+echo "- Virtual channel configuration (0-255)"
+echo "- Packet sending/reception"
+echo "- HOL blocking prevention"
+echo "- Zenoh network communication"
 echo
 echo "Expected output includes:"
 echo "• 'ZenohMultiplayerPeer initialized'"
