@@ -14,6 +14,7 @@ use zenoh::pubsub::Subscriber;
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
+    pub from_peer: i64, // Sender peer ID for self-message filtering
 }
 
 /// Zenoh networking session with HOL blocking prevention - ASYNC IMPLEMENTATION
@@ -163,9 +164,12 @@ impl ZenohSession {
 
         // Try to get existing publisher
         if let Some(publisher) = self.publishers.lock().unwrap().get(&channel) {
-            let data = p_buffer.to_vec(); // Use Vec<u8> directly
+            // Add sender peer ID header (8 bytes: peer_id as i64)
+            let mut packet_data = Vec::with_capacity(8 + p_buffer.len());
+            packet_data.extend_from_slice(&self.peer_id.to_le_bytes());
+            packet_data.extend_from_slice(p_buffer);
 
-            if let Err(e) = publisher.put(data).await {
+            if let Err(e) = publisher.put(packet_data).await {
                 godot_error!(
                     "Failed to send Zenoh packet on channel {}: {:?}",
                     channel,
@@ -252,16 +256,33 @@ impl ZenohSession {
                             // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
                             // Use zenoh 1.7.2 payload conversion methods
                             let payload_bytes = sample.payload().to_bytes();
-                            let data: Vec<u8> = payload_bytes.to_vec();
+                            let full_data: Vec<u8> = payload_bytes.to_vec();
+
+                            // Parse header: first 8 bytes are sender peer ID (i64)
+                            if full_data.len() < 8 {
+                                godot_error!("Received malformed packet: too short for header");
+                                return;
+                            }
+
+                            let sender_peer_id = i64::from_le_bytes(full_data[0..8].try_into().unwrap());
+                            let actual_data = &full_data[8..];
+
+                            // SELF-MESSAGE FILTERING: Don't process packets from ourselves
+                            if sender_peer_id == peer_id {
+                                // This is our own message, ignore it
+                                return;
+                            }
+
                             let topic_str = sample.key_expr().as_str();
                             let hol_priority = channel; // Extract from topic or use channel mapping
 
                             // Debug: Always log received packets for now
-                            godot_print!("DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
-                                   topic_str, hol_priority, sample.payload().len());
+                            godot_print!("DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' from peer {} (channel: {}, size: {})",
+                                   topic_str, sender_peer_id, hol_priority, actual_data.len());
 
                             let packet = Packet {
-                                data,
+                                data: actual_data.to_vec(),
+                                from_peer: sender_peer_id,
                             };
 
                             let mut queues = packet_queues.lock().unwrap();
@@ -304,10 +325,11 @@ impl ZenohSession {
     }
 
     /// Local queue fallback for HOL processing
-    fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, _from_peer_id: i64) {
+    fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
         let data = p_buffer.to_vec(); // Use Vec<u8> directly
         let packet = Packet {
             data,
+            from_peer: from_peer_id,
         };
 
         let mut queues = self.packet_queues.lock().unwrap();

@@ -245,11 +245,8 @@ func _on_poll_timeout():
 				from_player_id = get_other_player_id()
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (legacy format)")
 
-			# Filter out self-messages (don't process your own packets)
-			my_id = zenoh_peer.get_unique_id()
-			if from_player_id == my_id:
-				print("Ignored self-message")
-				continue  # Skip processing self-messages
+			# Self-message filtering is now handled automatically by the Zenoh peer
+			# No need to manually filter here
 
 			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
 			if countdown_number > 0 and count >= 0:

@@ -188,6 +188,9 @@ pub struct ZenohMultiplayerPeer {
     current_channel: i32,
     max_packet_size: i32,
 
+    // Current packet information for get_packet_* methods
+    current_packet_peer: i32,
+
     // Store ZID for get_zid() method
     zid: GodotString,
 
@@ -245,6 +248,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             packet_queues: Arc::new(Mutex::new(HashMap::new())),
             current_channel: 0,
             max_packet_size: 1472, // UDP MTU - Zenoh overhead
+            current_packet_peer: 0,
             zid: GString::from(""),
             base: _base,
         }
@@ -303,7 +307,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn get_packet_peer(&self) -> i32 {
-        0 // Default - all packets are targeted
+        self.current_packet_peer
     }
 
     fn is_server(&self) -> bool {
@@ -427,7 +431,11 @@ impl ZenohMultiplayerPeer {
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
-                    godot_print!("DEBUG: Retrieved packet from channel {} (size: {})", priority, packet.data.len());
+                    // Store sender peer ID for get_packet_peer()
+                    self.current_packet_peer = packet.from_peer as i32;
+                    
+                    godot_print!("DEBUG: Retrieved packet from channel {} (size: {}, from peer: {})", 
+                               priority, packet.data.len(), packet.from_peer);
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
                 }
@@ -465,6 +473,7 @@ impl ZenohMultiplayerPeer {
             .or_insert_with(VecDeque::new)
             .push_back(Packet {
                 data: p_buffer.to_vec(),
+                from_peer: 0, // Unknown sender for local fallback
             });
         Error::OK
     }
@@ -512,6 +521,7 @@ impl ZenohMultiplayerPeer {
                     let data = vec![channel as u8, i as u8]; // Use Vec<u8> directly
                     let packet = Packet {
                         data,
+                        from_peer: 999, // Demo packets from fake peer
                     };
                     queues
                         .entry(channel)
@@ -525,6 +535,7 @@ impl ZenohMultiplayerPeer {
             let critical_data = vec![0u8, 255u8]; // Use Vec<u8> directly - Channel 0 marker, critical flag
             let critical_packet = Packet {
                 data: critical_data,
+                from_peer: 999, // Demo packet from fake peer
             };
             queues
                 .entry(0)
