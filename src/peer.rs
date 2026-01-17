@@ -202,13 +202,11 @@ impl ZenohAsyncBridge {
     }
 
     fn send_command(&self, cmd: ZenohCommand) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(mut queue) = self.command_queue.try_lock() {
-            queue.push(cmd);
-            godot_print!("Command queued for worker thread");
-            Ok(())
-        } else {
-            Err("Failed to acquire command queue lock".into())
-        }
+        // Block on command queue lock - this is intentional for thread safety
+        let mut queue = self.command_queue.lock().unwrap();
+        queue.push(cmd);
+        godot_print!("Command queued for worker thread");
+        Ok(())
     }
 
     fn get_events(&self) -> Vec<ZenohStateUpdate> {

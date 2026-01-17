@@ -290,8 +290,9 @@ func _on_poll_timeout():
 		var zid = zenoh_peer.get_zid()
 		print("Connection completed in election - ID: " + str(my_id) + " | ZID: " + zid)
 
-		# Send heartbeat now that we're connected
-		send_election_heartbeat()
+		# Now that we have real peer ID, restart election with proper IDs
+		print("⚡ Restarting election with real peer ID " + str(my_id))
+		restart_election_with_real_id()
 
 		# Update UI
 		update_peer_info()
@@ -482,12 +483,21 @@ func start_leader_election():
 	add_child(poll_timer)
 
 func send_election_heartbeat():
-	var heartbeat_msg = "ELECT:" + str(zenoh_peer.get_unique_id()) + ":" + str(zenoh_peer.get_zid())
+	var election_id: int = 0
+
+	# Use unique ID if available, otherwise use deterministic election ID
+	if my_id != -1:
+		election_id = my_id
+	else:
+		# Use process ID and start time as deterministic election ID
+		election_id = OS.get_process_id() + OS.get_ticks_msec()
+
+	var heartbeat_msg = "ELECT:" + str(election_id) + ":" + str(zenoh_peer.get_zid())
 	var data = PackedByteArray()
 	data.append_array(heartbeat_msg.to_utf8_buffer())
 
 	var result = zenoh_peer.put_packet(data)
-	print("Sent election heartbeat: " + heartbeat_msg)
+	print("Sent election heartbeat: " + heartbeat_msg + " (current election_id: " + str(election_id) + ")")
 	if result != 0:
 		print("⚠️ Election heartbeat send failed, but continuing")
 
@@ -558,6 +568,30 @@ func complete_leader_election_as_follower():
 
 	# Setup client networking
 	setup_networking()
+
+func restart_election_with_real_id():
+	# Clear previous election state
+	known_peers = []
+	if election_timer:
+		election_timer.stop()
+		election_timer.free()
+	election_timer = null
+
+	# Restart election with 2-second timeout since we now have real IDs
+	print("Restarting election with dedicated 2-second phase for real ID coordination")
+
+	# Send heartbeat with real ID now
+	send_election_heartbeat()
+
+	# Start shorter election timeout (2 seconds) for real ID election
+	election_timer = Timer.new()
+	election_timer.one_shot = true
+	election_timer.wait_time = 2.0  # 2 seconds for real ID election
+	election_timer.connect("timeout", Callable(self, "_on_election_timeout"))
+	add_child(election_timer)
+	election_timer.start()
+
+	print("Election restarted with real peer IDs - completing leader selection")
 
 # MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
 func compute_state_hash() -> String:
