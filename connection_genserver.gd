@@ -35,8 +35,6 @@ func handle_info(message, state_data):
 	match message.type:
 		"timeout":
 			if current_state.begins_with("connecting"):
-				print("Connection timeout - retrying...")
-				# Could implement retry logic here
 				return ["noreply", "failed", state_data]
 	return ["noreply", current_state, state_data]
 

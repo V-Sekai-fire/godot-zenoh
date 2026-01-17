@@ -43,18 +43,15 @@ func handle_cast(message, state_data):
 	return ["noreply", current_state, state_data]
 
 func handle_info(message, state_data):
-	# System messages and timeouts - {noreply, new_state, new_data}
 	match message.type:
 		"zenoh_connected":
 			return ["noreply", "connected", state_data]
 		"timeout":
 			match current_state:
 				"waiting_connections":
-					print("Election timeout - forcing single participant mode")
 					state_data["leader"] = state_data.get("my_id", 1)
 					return ["noreply", "finalized", state_data]
 				"victory_broadcasting":
-					print("Victory ack timeout - proceeding anyway")
 					return ["noreply", "finalized", state_data]
 	return ["noreply", current_state, state_data]
 

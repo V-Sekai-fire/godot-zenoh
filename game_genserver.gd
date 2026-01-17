@@ -98,7 +98,6 @@ func _reset_game_state():
 
 func _force_next_turn(state_data):
 	# Emergency function to break deadlocks - force turn progression
-	print("HLC timeout - forcing turn to next player")
 	state_data.current_player = "O" if state_data.current_player == "X" else "X"
 
 func send_event(event_type, event_data = {}):
