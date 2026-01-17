@@ -200,14 +200,7 @@ func _delayed_response():
 			label.text = "Responding with: " + str(countdown_number)
 			print("After 1 second - sending countdown: " + str(countdown_number))
 			_send_count()
-			# Wait for next receipt
-	# Timer cleans itself up
-	else:
-		print("DEBUG: Received non-COUNT message: '" + data_string + "'")
-
-	# Debug poll - remove this after testing
-	if packet_count == 0 and not is_host:
-		print("DEBUG: Client polling, no packets available")
+			# Wait for next receipt (no auto countdown)
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1

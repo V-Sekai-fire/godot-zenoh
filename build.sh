@@ -47,6 +47,14 @@ TARGET_PATH="target/release/$LIB_NAME"
 if [ -f "$TARGET_PATH" ]; then
     mkdir -p addons/godot-zenoh
     cp "$TARGET_PATH" "addons/godot-zenoh/"
+
+    # On macOS, code signing is required for libraries
+    if [ "$LIB_EXT" = "dylib" ]; then
+        echo "Code signing GDExtension library for macOS..."
+        codesign --force --sign - "addons/godot-zenoh/$LIB_NAME"
+        echo "Library code signed."
+    fi
+
     echo "Built library copied to addons/godot-zenoh/$LIB_NAME"
     echo "Ready to be used in Godot project!"
 else
