@@ -38,6 +38,8 @@ pub struct ZenohMultiplayerPeer {
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
         godot_print!("ZenohMultiplayerPeer initialized");
+        godot_print!("Priority channels: 0→255 packet ordering");
+        godot_print!("256 virtual channels available");
 
         Self {
             game_id: GString::new(),
@@ -99,8 +101,8 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn set_target_peer(&mut self, _peer_id: i32) {
-        // HOL blocking prevention doesn't use target peer concept
-        godot_print!("Target peer setting not applicable for HOL blocking prevention");
+        // Virtual channels don't use target peer concept
+        godot_print!("Target peer setting not applicable for virtual channels");
     }
 
     fn get_packet_peer(&self) -> i32 {
@@ -118,14 +120,14 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
     fn close(&mut self) {
         self.connection_status = 0; // DISCONNECTED
-        godot_print!("ZenohMultiplayerPeer connection closed (HOL blocking prevention)");
+        godot_print!("ZenohMultiplayerPeer connection closed");
         // Clear all packet queues
         self.packet_queues.lock().unwrap().clear();
     }
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
-        // HOL blocking prevention peer handles packets, not peer connections
-        godot_print!("Peer disconnection not applicable for HOL blocking prevention");
+        // Virtual channels handle packets, not peer connections
+        godot_print!("Peer disconnection not applicable for virtual channels");
     }
 
     fn get_unique_id(&self) -> i32 {
@@ -179,20 +181,13 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-        // 🛡️🏗️ HOL BLOCKING PREVENTION: Always process lowest priority first
-        // Zenoh-native: Topics with priority 0 processed before higher priorities
+        // Process packets by priority: always check lowest channel number first
+        // Channels are ordered 0=highest priority, 255=lowest priority
         let mut queues = self.packet_queues.lock().unwrap();
 
-        // Process priorities in HOL prevention order (0=highest, 255=lowest)
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
-                    godot_print!(
-                        "✅ HOL BLOCKING PREVENTION: Processing packet on topic {} (priority: {})",
-                        packet.topic,
-                        packet.hol_priority
-                    );
-
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
                 }
@@ -208,9 +203,8 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn put_packet_on_channel(&mut self, p_buffer: PackedByteArray, channel: i32) -> Error {
-        // 🛡️🏗️ HOL BLOCKING PREVENTION: Route through Zenoh networking when available
         if let Some(zenoh_session_arc) = &self.zenoh_session {
-            // REAL NETWORKING: Send via Zenoh pub/sub
+            // Send via Zenoh pub/sub networking
             let session_clone = Arc::clone(zenoh_session_arc);
             let data_vec = p_buffer.to_vec();
             let game_id = self.game_id.clone();
@@ -227,15 +221,10 @@ impl ZenohMultiplayerPeer {
                 });
             });
 
-            godot_print!(
-                "📤 HOL PREVENTION: Packet sent via Zenoh on channel {} (size: {})",
-                channel,
-                data_len
-            );
             return Error::OK;
         }
 
-        // FALLBACK: Local queuing when no Zenoh session (HOL prevention still applies)
+        // Fallback: local queuing when no networking session available
         let mut queues = self.packet_queues.lock().unwrap();
         let fallback_topic =
             GString::from(format!("game/{}/fallback/{}", self.game_id, channel).as_str());
@@ -243,14 +232,10 @@ impl ZenohMultiplayerPeer {
             .entry(channel)
             .or_insert_with(VecDeque::new)
             .push_back(Packet {
-                data: p_buffer.to_vec(), // Use Vec<u8> directly
+                data: p_buffer.to_vec(),
                 topic: fallback_topic,
                 hol_priority: channel,
             });
-        godot_print!(
-            "🔄 HOL PREVENTION: Packet queued locally on channel {} (Zenoh session unavailable)",
-            channel
-        );
         Error::OK
     }
 
@@ -347,7 +332,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
-        godot_print!("🚀 Creating Zenoh CLIENT with FULL networking + HOL prevention...");
+        godot_print!("Creating Zenoh client on {}:{}", address, port);
         let runtime = Runtime::new().unwrap();
         let packet_queues = Arc::clone(&self.packet_queues);
 
@@ -373,22 +358,21 @@ impl ZenohMultiplayerPeer {
                     Ok(())
                 }) {
                     Ok(_) => {
-                        godot_print!("✅ All 256 HOL virtual channels wired to Zenoh networking")
+                        godot_print!("Connected with 256 virtual channels")
                     }
                     Err(e) => {
-                        godot_error!("❌ Failed to setup Zenoh channels: {:?}", e);
+                        godot_error!("❌ Failed to setup channels: {:?}", e);
                         return Error::FAILED;
                     }
                 }
 
                 self.unique_id = (rand::random::<u32>() % 999) as i64 + 2; // 2-1000 range
                 self.connection_status = 2; // CONNECTED
-                godot_print!("✅ Zenoh client with 256-channel HOL prevention ACTIVE!");
-                godot_print!("📡 Real peer-to-peer networking + HOL protection enabled");
+                godot_print!("Client connected and active");
                 Error::OK
             }
             Err(e) => {
-                godot_error!("❌ Failed to create Zenoh client: {:?}", e);
+                godot_error!("❌ Client connection failed: {:?}", e);
                 Error::FAILED
             }
         }
@@ -396,7 +380,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn create_server(&mut self, port: i32, max_clients: i32) -> Error {
-        godot_print!("🚀 Creating Zenoh SERVER with FULL networking + HOL prevention...");
+        godot_print!("Creating Zenoh server on port {}", port);
         let runtime = Runtime::new().unwrap();
         let packet_queues = Arc::clone(&self.packet_queues);
 
@@ -423,22 +407,21 @@ impl ZenohMultiplayerPeer {
                     Ok(())
                 }) {
                     Ok(_) => {
-                        godot_print!("✅ All 256 HOL virtual channels wired to Zenoh networking")
+                        godot_print!("Server started with 256 virtual channels")
                     }
                     Err(e) => {
-                        godot_error!("❌ Failed to setup Zenoh channels: {:?}", e);
+                        godot_error!("❌ Failed to setup channels: {:?}", e);
                         return Error::FAILED;
                     }
                 }
 
                 self.unique_id = 1; // Server gets ID 1
                 self.connection_status = 2; // CONNECTED
-                godot_print!("✅ Zenoh server with 256-channel HOL prevention ACTIVE!");
-                godot_print!("🎯 Peer-to-peer networking + HOL protection enabled");
+                godot_print!("Server active");
                 Error::OK
             }
             Err(e) => {
-                godot_error!("❌ Failed to create Zenoh server: {:?}", e);
+                godot_error!("❌ Server startup failed: {:?}", e);
                 Error::FAILED
             }
         }
@@ -457,7 +440,7 @@ impl ZenohMultiplayerPeer {
     #[func]
     fn close(&mut self) {
         self.connection_status = 0; // DISCONNECTED
-        godot_print!("ZenohMultiplayerPeer connection closed (HOL blocking prevention)");
+        godot_print!("ZenohMultiplayerPeer connection closed");
         // Clear all packet queues
         self.packet_queues.lock().unwrap().clear();
     }

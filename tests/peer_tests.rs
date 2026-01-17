@@ -195,3 +195,135 @@ mod peer_channel_tests {
         assert_eq!(&buffer, &[0, 99]);
     }
 }
+
+// Property-based tests for statistical validation
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_channel_ordering_property(channels in prop::collection::vec(0..=255u32, 1..20)) {
+            let peer = TestPeer::new();
+
+            // Add one packet per channel with channel number as data
+            for &channel in &channels {
+                let channel_id = channel as i32;
+                peer.add_packet_to_channel(channel_id, vec![channel_id as u8, 0]);
+            }
+
+            // Extract packets - should come out in ascending channel order
+            let mut extracted_channels = Vec::new();
+            let mut buffer = vec![0u8; 2];
+
+            for _ in 0..channels.len() {
+                if let Ok(_) = peer.get_packet(buffer.as_mut_slice()) {
+                    extracted_channels.push(buffer[0] as i32);
+                }
+            }
+
+            // Verify ordering: extracted channels should be sorted ascending
+            prop_assert_eq!(extracted_channels, {
+                let mut expected = channels.clone();
+                expected.sort();
+                expected.into_iter().map(|c| c as i32).collect::<Vec<_>>()
+            });
+        }
+
+        #[test]
+        fn test_packet_integrity(channel in 0..=255u32, data in prop::collection::vec(0..=255u8, 1..100)) {
+            let peer = TestPeer::new();
+            let channel_id = channel as i32;
+
+            // Add packet to channel
+            peer.add_packet_to_channel(channel_id, data.clone());
+
+            // Retrieve packet
+            let mut buffer = vec![0u8; data.len()];
+            peer.get_packet(buffer.as_mut_slice()).unwrap();
+
+            // Verify data integrity
+            prop_assert_eq!(&buffer[..data.len()], &data[..]);
+        }
+
+        #[test]
+        fn test_channel_workload_simulation(
+            low_channel_packets in prop::collection::vec(prop::collection::vec(0..=255u8, 1..10), 10..50),
+            high_channel_packets in prop::collection::vec(prop::collection::vec(0..=255u8, 1..10), 100..200)
+        ) {
+            let peer = TestPeer::new();
+
+            // Simulate high workload on high channel (channel 255)
+            for packet in &high_channel_packets {
+                peer.add_packet_to_channel(255, packet.clone());
+            }
+
+            // Add some packets to low channel (channel 0)
+            for packet in &low_channel_packets {
+                peer.add_packet_to_channel(0, packet.clone());
+            }
+
+            // Low channel packets should always be served first (HOL blocking prevention)
+            let total_low_packets = low_channel_packets.len();
+            let mut buffer = vec![0u8; 10];
+
+            for i in 0..total_low_packets.min(5) {  // Check first few packets
+                peer.get_packet(buffer.as_mut_slice()).unwrap();
+                // Should be from low channel (channel 0)
+                prop_assert_eq!(buffer[0], 0, "Received packet from wrong channel in HOL test");
+            }
+        }
+
+        #[test]
+        fn test_fifo_within_channel(packets in prop::collection::vec(prop::collection::vec(0..=255u8, 3..8), 2..20)) {
+            let peer = TestPeer::new();
+            let channel = 42;
+
+            // Add multiple packets to same channel
+            let mut sent_packets = Vec::new();
+            for packet in &packets {
+                peer.add_packet_to_channel(channel, packet.clone());
+                sent_packets.push(packet.clone());
+            }
+
+            // Retrieve all packets - should maintain FIFO order
+            let mut received_packets = Vec::new();
+            let mut buffer = vec![0u8; 10];
+
+            for _ in 0..packets.len() {
+                peer.get_packet(buffer.as_mut_slice()).unwrap();
+                let received_len = buffer.iter().position(|&x| x == 0).unwrap_or(buffer.len());
+                received_packets.push(buffer[..received_len].to_vec());
+            }
+
+            // Should receive packets in exact order sent
+            prop_assert_eq!(received_packets, sent_packets);
+        }
+
+        #[test]
+        fn test_buffer_bounds_safety(packet_size in 1..1000usize, buffer_size in 1..100usize) {
+            let peer = TestPeer::new();
+            let channel = 5;
+
+            // Create packet that may be larger than buffer
+            let packet_data: Vec<u8> = (0..packet_size).map(|i| (i % 256) as u8).collect();
+
+            peer.add_packet_to_channel(channel, packet_data.clone());
+
+            // Retrieve with smaller buffer
+            let mut buffer = vec![0u8; buffer_size];
+
+            // Should not panic and should copy min(len, buffer.len()) bytes
+            let result = peer.get_packet(buffer.as_mut_slice());
+            prop_assert!(result.is_ok());
+
+            let expected_copied = std::cmp::min(packet_size, buffer_size);
+            prop_assert_eq!(&buffer[..expected_copied], &packet_data[..expected_copied]);
+
+            // Rest of buffer should be unchanged (0)
+            for &byte in &buffer[expected_copied..] {
+                prop_assert_eq!(byte, 0);
+            }
+        }
+    }
