@@ -411,15 +411,14 @@ func get_other_player_id():
 
 # MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
 func compute_state_hash() -> String:
-	# Create state object representing current game state (no timestamp for consistent hashing)
+	# Create state object representing SHARED game state (exclude identity for consensus)
 	var state = {
 		"countdown": countdown_number,
 		"connection_state": connection_state,
 		"last_received": last_received_count,
 		"is_counting_DOWN": str(is_counting_down),  # Convert bool to string for hashing
-		"player_id": zenoh_peer.get_unique_id() if zenoh_peer else -1,
-		"hash_divergence_count": hash_divergence_count,
-		# Include recent message logs (last 10 of each) - this provides the divergence tracking
+		"divergences_found": hash_divergence_count,
+		# Recent message logs (chronological order) - core game state history
 		"received_recent": received_messages_log.slice(max(0, received_messages_log.size()-10)),
 		"response_recent": response_messages_log.slice(max(0, response_messages_log.size()-10))
 	}

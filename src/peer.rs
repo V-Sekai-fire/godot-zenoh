@@ -163,41 +163,42 @@ impl ZenohAsyncBridge {
         command_queue: Arc<Mutex<Vec<ZenohCommand>>>,
         event_queue: Arc<Mutex<Vec<ZenohStateUpdate>>>,
         stop_flag: Arc<Mutex<bool>>,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Create tokio runtime in thread (avoids GDextension nesting)
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
-            .build()
-            .unwrap();
+            .build()?;
 
         rt.block_on(async {
-            godot_print!("Zenoh worker thread started with tokio runtime");
+            // Worker thread is pure state machine - no sleeps, only queue-driven processing
             loop {
-                // Check for stop signal
+                // State machine: Check for stop signal (immediate exit)
                 if *stop_flag.lock().unwrap() {
-                    godot_print!("Zenoh worker thread stopping...");
                     break;
                 }
 
-                // Process any pending commands
+                // State machine: Process command queue (non-blocking)
                 let cmds = {
                     let mut queue = command_queue.lock().unwrap();
                     std::mem::take(&mut *queue)
                 };
 
-                for cmd in cmds {
-                    // Note: godot_print cannot be used from worker threads
-                    if let Some(event) = actor.handle_command(cmd).await {
-                        event_queue.lock().unwrap().push(event);
+                if !cmds.is_empty() {
+                    // Process each command atomically
+                    for cmd in cmds {
+                        if let Some(event) = actor.handle_command(cmd).await {
+                            event_queue.lock().unwrap().push(event);
+                        }
                     }
+                } else {
+                    // Queue empty, yield control via tokio scheduler (efficient wait)
+                    tokio::task::yield_now().await;
                 }
-
-                // Sleep briefly to avoid busy waiting
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
             }
-            godot_print!("Zenoh worker thread exited");
         });
+
+        Ok(())
     }
 
     fn send_command(&self, cmd: ZenohCommand) -> Result<(), Box<dyn std::error::Error>> {
