@@ -230,6 +230,8 @@ impl ZenohSession {
                 let subscriber_result = session.declare_subscriber(topic)
                     .callback(move |sample| {
                         // HOL BLOCKING PREVENTION: Received packet from Zenoh topic
+                        // Zenoh sends to ALL subscribers including sender - filter self-messages at network level
+
                         let payload_bytes = sample.payload().to_bytes();
                         let full_data: Vec<u8> = payload_bytes.to_vec();
 
@@ -241,9 +243,11 @@ impl ZenohSession {
                         let sender_peer_id = i64::from_le_bytes(full_data[0..8].try_into().unwrap());
                         let actual_data = &full_data[8..];
 
-                        // SELF-MESSAGE FILTERING: Don't process packets from ourselves
+                        // BLOCK SELF-MESSAGES: Don't receive packets we sent during pub/sub delivery
+                        // This prevents the "send message → immediately receive it back" loop
                         if sender_peer_id == peer_id {
-                            return; // Ignore own messages
+                            // Silent ignore - this is normal in pub/sub systems but disruptive here
+                            return;
                         }
 
                         let packet = Packet {

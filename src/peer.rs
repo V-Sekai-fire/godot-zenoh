@@ -381,16 +381,17 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         // Worker thread handles async operations
     }
 
-    fn close(&mut self) {
-        // Only log if we were actually connected
-        if self.connection_status != 0 {
-            godot_print!("ZenohMultiplayerPeer connection closed");
-        }
-        self.connection_status = 0; // DISCONNECTED
-                                    // Clear all packet queues
-        self.packet_queues.lock().unwrap().clear();
-        // Note: Zenoh session will be dropped when async_bridge is dropped
-    }
+	fn close(&mut self) {
+		// Only log if we were actually connected
+		if self.connection_status != 0 {
+			godot_print!("ZenohMultiplayerPeer connection closed");
+		}
+		self.connection_status = 0; // DISCONNECTED
+									// Clear all packet queues
+		self.packet_queues.lock().unwrap().clear();
+		// Clear send queues on close
+		// Note: Zenoh session will be dropped when async_bridge is dropped
+	}
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
         // Virtual channels handle packets, not peer connections

@@ -18,6 +18,11 @@ var join_button: Button
 
 var countdown_timer: Timer
 
+# LEADER ELECTION STATE
+var known_peers: Array = []  # List of all known peer IDs for election
+var election_timer: Timer    # Timer for election completion
+var leader_election_phase: bool = false  # Whether we're in election phase
+
 # Connection state machine constants (integer enum)
 const STATE_DISCONNECTED = 0
 const STATE_CONNECTING = 1
@@ -26,6 +31,7 @@ const STATE_FAILED = 3
 const STATE_SERVER_READY = 4
 const STATE_CLIENT_ATTEMPTING = 5
 const STATE_ZENOH_SESSION_FAILED = 6
+const STATE_LEADER_ELECTION = 7  # New state for automatic leader election
 
 # Connection state machine variables
 var connection_state: int = STATE_DISCONNECTED
@@ -58,13 +64,16 @@ func _ready():
 			print("Auto-starting as client...")
 			_on_join_pressed()
 	else:
-		print("Running in interactive mode - setup UI")
-		# Create UI
-		setup_ui()
-
+		print("Running in interactive mode - skip UI for leader election")
 		# Initialize zenoh peer
 		zenoh_peer = ZenohMultiplayerPeer.new()
 		zenoh_peer.game_id = "pong_test"
+
+		print("Starting automatic leader election...")
+		start_leader_election()
+
+	# Create UI in all cases for status display
+	setup_ui()
 
 func setup_ui():
 	# Create UI for testing
@@ -382,6 +391,143 @@ func _delayed_response():
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
+
+# LEADER ELECTION FUNCTIONS - Deterministic Bully-like Algorithm
+func start_leader_election():
+	leader_election_phase = true
+	known_peers = []
+	connection_state = STATE_LEADER_ELECTION
+
+	if label:
+		label.text = "ELECTING LEADER... Collecting peers"
+
+	# Connect to Zenoh network first
+	print("Connecting to Zenoh network for leader election...")
+
+	# Create client connection for leader election (all peers start as clients)
+	var result = zenoh_peer.create_client("localhost", 7447)
+	if result != 0:
+		# If server doesn't exist, become the first server
+		print("No existing server found - becoming the leader")
+		result = zenoh_peer.create_server(7447, 32)
+		if result == 0:
+			print("✅ Took leadership - became server")
+			complete_leader_election_as_leader()
+			return
+		else:
+			print("❌ Failed to create server as leader")
+			return
+
+	# Wait for connection (polling timeout)
+	var connect_timeout = 5.0
+	var start_time = Time.get_unix_time_from_system()
+	while zenoh_peer.connection_status() != 2 and Time.get_unix_time_from_system() - start_time < connect_timeout:
+		zenoh_peer.poll()
+		await get_tree().create_timer(0.1).timeout
+
+	if zenoh_peer.connection_status() != 2:
+		print("❌ Connection timeout - leader election failed")
+		return
+
+	my_id = zenoh_peer.get_unique_id()
+	var zid = zenoh_peer.get_zid()
+	print("Connected successfully - ID: " + str(my_id) + " | ZID: " + zid)
+
+	# Send heartbeat to announce presence
+	send_election_heartbeat()
+
+	# Start election timeout timer
+	election_timer = Timer.new()
+	election_timer.one_shot = true
+	election_timer.wait_time = 3.0  # 3 seconds to collect all peers
+	election_timer.connect("timeout", Callable(self, "_on_election_timeout"))
+	add_child(election_timer)
+	election_timer.start()
+
+	# Start polling for election messages
+	var poll_timer = Timer.new()
+	poll_timer.autostart = true
+	poll_timer.wait_time = 0.1
+	poll_timer.connect("timeout", Callable(self, "_on_election_poll"))
+	add_child(poll_timer)
+
+func send_election_heartbeat():
+	var heartbeat_msg = "ELECT:" + str(zenoh_peer.get_unique_id()) + ":" + str(zenoh_peer.get_zid())
+	var data = PackedByteArray()
+	data.append_array(heartbeat_msg.to_utf8_buffer())
+
+	var result = zenoh_peer.put_packet(data)
+	print("Sent election heartbeat: " + heartbeat_msg)
+	if result != 0:
+		print("⚠️ Election heartbeat send failed, but continuing")
+
+func _on_election_poll():
+	zenoh_peer.poll()
+
+	while zenoh_peer.get_available_packet_count() > 0:
+		var data = zenoh_peer.get_packet()
+		var msg = data.get_string_from_utf8()
+
+		if msg.begins_with("ELECT:"):
+			var parts = msg.split(":")
+			if parts.size() >= 3:
+				var peer_id = int(parts[1])
+				var peer_zid = parts[2]
+
+				# Add to known peers if not already known
+				if known_peers.find(peer_id) == -1 and peer_id != zenoh_peer.get_unique_id():
+					known_peers.append(peer_id)
+					print("Discovered peer #" + str(peer_id) + " (" + peer_zid + ")")
+					if label:
+						label.text = "ELECTING LEADER... Found " + str(known_peers.size()) + " peers"
+
+func _on_election_timeout():
+	print("Election timeout - analyzing " + str(known_peers.size()) + " discovered peers")
+
+	# Add self to known peers
+	known_peers.append(my_id)
+	var all_peers = known_peers.duplicate()
+	all_peers.sort()
+	print("All peers in election: " + str(all_peers))
+
+	# Lowest ID becomes leader
+	var leader_id = all_peers[0]
+	print("🏆 Leader selected: Peer #" + str(leader_id) + " (lowest ID)")
+
+	if leader_id == my_id:
+		# I am the leader!
+		print("✅ I am the LEADER - promoting to server")
+		complete_leader_election_as_leader()
+	else:
+		# I am a follower
+		print("✅ I am a FOLLOWER - connecting as client to Leader #" + str(leader_id))
+		complete_leader_election_as_follower()
+
+func complete_leader_election_as_leader():
+	# Change to server mode
+	print("Election complete - starting server for followers")
+	leader_election_phase = false
+	connection_state = STATE_SERVER_READY
+	is_host = true
+
+	if label:
+		label.text = "LEADER: Waiting for followers..."
+
+	# Setup normal networking (leader is ready to start game)
+	setup_networking()
+
+func complete_leader_election_as_follower():
+	# Switch to client mode to connect to the elected leader
+	print("Election complete - connecting as client to leader")
+	leader_election_phase = false
+	connection_state = STATE_CONNECTED
+	is_host = false
+
+	if label:
+		label.text = "FOLLOWER: Connecting to leader..."
+
+	# Setup client networking
+	setup_networking()
 
 # MERKLE HASH STATE COMPUTATION - for state divergence detection using Godot's HashingContext
 func compute_state_hash() -> String:
