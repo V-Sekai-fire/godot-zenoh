@@ -35,7 +35,7 @@ pub struct ZenohSession {
 }
 
 impl ZenohSession {
-    /// Create Zenoh networking client session
+    /// Create Zenoh networking client session (connects to server peer)
     pub async fn create_client(
         address: GString,
         port: i32,
@@ -44,50 +44,40 @@ impl ZenohSession {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!("🎯 Creating Zenoh CLIENT session - HOL blocking prevention ENABLED");
 
-        // Set zenoh environment variable to connect to router
-        if !address.is_empty() && port > 0 {
-            let tcp_endpoint = format!("tcp/{}:{}", address, port);
-            godot_print!(
-                "🚀 Connecting Zenoh CLIENT to router via TCP: {}",
-                tcp_endpoint
-            );
+        // Use Zenoh P2P: Set connect endpoint to connect to server peer (authoritative router)
+        let tcp_endpoint = format!("tcp/{}:{}", address, port);
+        godot_print!("🔌 Zenoh CLIENT connecting to server peer at: {}", tcp_endpoint);
+        std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
 
-            // Set environment variable for zenoh to connect to router
-            std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
-        } else {
-            godot_print!("🌐 Creating Zenoh CLIENT with default peer discovery");
-        }
-
-        // Use default zenoh config - environment will control connection
+        // Use default zenoh config - peer connects to server peer automatically via environment
         let zenoh_config = zenoh::Config::default();
+        godot_print!("🔧 Zenoh CLIENT attempting to open session...");
         let session_result = zenoh::open(zenoh_config).await;
         let session = match session_result {
-            Ok(sess) => sess,
+            Ok(sess) => {
+                let zid = sess.zid().to_string();
+                godot_print!("✅ Zenoh CLIENT session opened successfully - ZID: {}", zid);
+                Arc::new(sess)
+            }
             Err(e) => {
-                godot_error!("❌ Failed to connect Zenoh CLIENT session: {:?}", e);
+                godot_error!("❌ Zenoh CLIENT failed to open session: {:?}", e);
+                // Provide more detailed error info
                 return Err(format!("Zenoh session creation failed: {:?}", e).into());
             }
         };
 
-        let session = Arc::new(session);
-
-        // Use zenoh session ZID as unique peer identifier
+        // Use zenoh session ZID as unique peer identifier (derived from network)
         let zid = session.zid().to_string();
-        godot_print!("🌐 Zenoh ZID: {}", zid);
+        godot_print!("🌐 Client ZID: {}", zid);
 
-        // Use last 8 chars of ZID as numeric ID base (hex -> i64)
         let peer_id = if zid.len() >= 8 {
             let last8 = &zid[zid.len()-8..];
             i64::from_str_radix(last8, 16).unwrap_or_else(|_| 2)
         } else {
-            2 // Fallback for short ZIDs
+            2 // Fallback
         };
 
-        godot_print!(
-            "✅ Zenoh CLIENT connected - Peer ID: {}, Game: {}",
-            peer_id,
-            game_id
-        );
+        godot_print!("✅ Zenoh CLIENT connected to server - Peer ID: {}, Game: {}", peer_id, game_id);
 
         Ok(ZenohSession {
             session,
@@ -103,53 +93,43 @@ impl ZenohSession {
         })
     }
 
-    /// Create Zenoh networking server session (connects to external router)
+    /// Create Zenoh networking server session (BEcomes authoritative P2P router)
     pub async fn create_server(
         port: i32,
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         godot_print!(
-            "🎯 Creating Zenoh SERVER client on port {} - HOL blocking prevention ENABLED",
+            "🎯 Creating Zenoh SERVER (Authoritative Router) on port {} - HOL blocking prevention ENABLED",
             port
         );
 
-        // Set zenoh environment variable to connect to router
+        // Server peer: Listen on port to become the authoritative router that clients connect to
         if port > 0 {
-            let tcp_endpoint = format!("tcp/127.0.0.1:{}", port);
-            godot_print!(
-                "🚀 Connecting Zenoh SERVER to router via TCP: {}",
-                tcp_endpoint
-            );
+            let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
+            godot_print!("🛡️  Zenoh SERVER acting as authoritative router at: {}", listen_endpoint);
 
-            // Set environment variable for zenoh to connect to router
-            std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
-        } else {
-            godot_print!("🌐 Creating Zenoh SERVER with default peer discovery");
+            // CRITICAL: Set listen endpoint BEFORE creating session
+            std::env::set_var("ZENOH_LISTEN", listen_endpoint);
+            // In P2P zenoh, server peer becomes router - clients will connect to server peer directly
         }
 
-        // Use default zenoh config - environment will control connection
-        let zenoh_config = zenoh::Config::default();
-        let session_result = zenoh::open(zenoh_config).await;
+        let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
-            Ok(sess) => sess,
+            Ok(sess) => {
+                let zid = sess.zid().to_string();
+                godot_print!("✅ Zenoh SERVER router established - ZID: {}", zid);
+                Arc::new(sess)
+            }
             Err(e) => {
-                godot_error!("❌ Failed to create Zenoh SERVER session: {:?}", e);
-                return Err(format!("Zenoh session creation failed: {:?}", e).into());
+                godot_error!("❌ Failed to create Zenoh SERVER router: {:?}", e);
+                return Err(format!("Server router creation failed: {:?}", e).into());
             }
         };
 
-        let session = Arc::new(session);
-
-        // Show zenoh session ZID for debugging
-        let zid = session.zid().to_string();
-        godot_print!("🌐 Zenoh ZID: {} (Server)", zid);
-
-        // Server has fixed peer ID 1 (Godot convention)
-        godot_print!(
-            "✅ Zenoh SERVER connected - Peer ID: 1, Game: {}",
-            game_id
-        );
+        // Server gets fixed peer ID 1 (Godot convention)
+        // Server peer coordinates the session and becomes authoritative
+        godot_print!("✅ Zenoh SERVER (Authoritative Router) - Peer ID: 1, Game: {}", game_id);
 
         Ok(ZenohSession {
             session,
@@ -161,7 +141,7 @@ impl ZenohSession {
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             packet_queues,
             game_id,
-            peer_id: 1, // Server is peer 1
+            peer_id: 1, // Server is always peer 1
         })
     }
 
@@ -292,6 +272,16 @@ impl ZenohSession {
         }
 
         Error::OK
+    }
+
+    /// Get the peer ID for this session
+    pub fn get_peer_id(&self) -> i64 {
+        self.peer_id
+    }
+
+    /// Get the zenoh session ZID
+    pub fn get_zid(&self) -> String {
+        self.session.zid().to_string()
     }
 
     /// Local queue fallback for HOL processing

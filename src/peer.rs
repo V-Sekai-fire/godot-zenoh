@@ -152,6 +152,19 @@ impl ZenohMultiplayerPeer {
     }
 
     #[func]
+    fn get_zid(&self) -> String {
+        if let Some(session) = &self.zenoh_session {
+            if let Ok(guard) = session.lock() {
+                guard.get_zid()
+            } else {
+                "session_lock_failed".to_string()
+            }
+        } else {
+            "no_session".to_string()
+        }
+    }
+
+    #[func]
     fn connection_status(&self) -> i32 {
         self.connection_status
     }
@@ -356,9 +369,11 @@ impl ZenohMultiplayerPeer {
                     }
                 }
 
-                self.unique_id = (rand::random::<u32>() % 999) as i64 + 2; // 2-1000 range
+                // Use the peer_id that was assigned in the networking session (ZID-derived)
+                let session_guard = session_arc.lock().unwrap();
+                self.unique_id = session_guard.get_peer_id();
                 self.connection_status = 2; // CONNECTED
-                godot_print!("Client connected and active");
+                godot_print!("Client connected with ID {} and active", self.unique_id);
                 Error::OK
             }
             Err(e) => {

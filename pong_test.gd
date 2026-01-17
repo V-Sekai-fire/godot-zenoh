@@ -84,13 +84,16 @@ func _on_join_pressed():
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result == 0:
 		var client_id = zenoh_peer.get_unique_id()
-		label.text = "Joined game - Player ID: " + str(client_id)
-		print("Client Player ID: " + str(client_id))
-		print("DEBUG: Client connection successful - ID assigned by Zenoh")
+		var zid = ""
+		if zenoh_peer.has_method("get_zid"):
+			zid = zenoh_peer.get_zid()
+		else:
+			zid = "get_zid not available"
+		label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
+		print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
 		setup_networking()
 	else:
 		label.text = "Failed to join: " + str(result)
-		print("DEBUG: Client connection failed with result: " + str(result))
 
 func setup_networking():
 	print("Networking setup complete")
@@ -170,8 +173,6 @@ func _on_poll_timeout():
 	while zenoh_peer.get_available_packet_count() > 0:
 		var data = zenoh_peer.get_packet()
 		var data_string = data.get_string_from_utf8()
-		print("DEBUG: Received packet with length " + str(data.size()) + " bytes")
-		print("DEBUG: Packet content: '" + data_string + "'")
 
 		# Handle countdown message from other player (format: "COUNT:N:FROM_ID")
 		if data_string.begins_with("COUNT:"):
