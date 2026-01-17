@@ -531,7 +531,13 @@ func _on_election_poll():
 func _on_election_timeout():
 	print("Election timeout - analyzing " + str(known_peers.size()) + " discovered peers")
 
-	# Add self to known peers
+	# CRITICAL: Don't complete election until we have real peer IDs
+	if my_id == -1:
+		print("⚠️ Delaying election - still using temporary ID, restarting...")
+		restart_election_with_timeout_extension()
+		return
+
+	# Add self to known peers (now with real ID)
 	known_peers.append(my_id)
 	var all_peers = known_peers.duplicate()
 	all_peers.sort()
@@ -549,6 +555,23 @@ func _on_election_timeout():
 		# I am a follower
 		print("✅ I am a FOLLOWER - connecting as client to Leader #" + str(leader_id))
 		complete_leader_election_as_follower()
+
+func restart_election_with_timeout_extension():
+	# Extend election timeout again until we have real peer IDs
+	print("Extending election timeout for real peer ID assignment...")
+	if election_timer:
+		election_timer.stop()
+		election_timer.free()
+		election_timer = null
+
+	election_timer = Timer.new()
+	election_timer.one_shot = true
+	election_timer.wait_time = 2.0  # Additional 2 seconds to get real IDs
+	election_timer.connect("timeout", Callable(self, "_on_election_timeout"))
+	add_child(election_timer)
+	election_timer.start()
+
+	print("Election extended - waiting for real Zenoh peer IDs...")
 
 func complete_leader_election_as_leader():
 	# Change to server mode
