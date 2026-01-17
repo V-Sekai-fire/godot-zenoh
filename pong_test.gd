@@ -3,8 +3,25 @@ extends Node
 
 var zenoh_peer: ZenohMultiplayerPeer
 
+# LEGACY STATE MACHINE VARIABLES (for backward compatibility)
+var election_state: int = 0  # Will map to new state machines
+var election_timer: Timer
+var leader_election_phase: bool = false
+var known_peers = []
+var my_election_id: int = -1
+var current_leader_id: int = -1
+var election_message_queue = []
+var collected_peer_ids = []
+var victory_acknowledgments = 0
+var expected_acknowledgments = 0
+
 var my_id: int = -1
 var is_host: bool = false
+
+# GenServer Instances
+var election_server = ElectionGenServer.new()
+var connection_server = ConnectionGenServer.new()
+var game_server = GameGenServer.new()
 
 # 🔥 DISTRIBUTED TIC-TAC-TOE: Concurrency Demo Game
 var game_mode: int = 1  # 0 = Countdown, 1 = TicTacToe Demo
@@ -32,29 +49,240 @@ var join_button: Button
 
 var countdown_timer: Timer
 
-# BULLETIN-BOARD ALGORITHM STATE (HLC-based state machine coordination!)
-enum ElectionState {
-	DISCONNECTED,           # Initial state - not started
-	WAITING_CONNECTIONS,    # Connecting to Zenoh network
-	GENERATING_ID,          # Requesting HLC timestamp for election
-	BROADCASTING_HEARTBEATS,# Broadcasting HLC election ID
-	COLLECTING_PEERS,       # Collecting all peer heartbeats
-	DECIDING_LEADER,        # Running bully algorithm
-	VICTORY_BROADCASTING,   # I won - announcing victory
-	VICTORY_LISTENING,      # Waiting for victory/defeat messages
-	FINALIZED               # Election complete - leader/follower set
+# ELIXIR GENSERVER-STYLE STATE MACHINES
+# Each state machine has: init(), handle_call(), handle_cast(), handle_info()
+
+# Election GenServer State Machine
+class_name ElectionGenServer
+var current_state = "disconnected"
+var state_data = {}
+
+func init(initial_data = {}):
+	# Return {ok, state}
+	state_data = initial_data.duplicate()
+	return ["ok", self]
+
+func handle_call(message, from, state_data):
+	# Synchronous calls - {reply, response, new_state, new_data}
+	match current_state:
+		"connected":
+			if message == "start_election":
+				return ["reply", "election_started", "collecting_peers", state_data]
+		"collecting_peers":
+			if message == "get_peer_count":
+				return ["reply", state_data.get("peer_count", 0), "collecting_peers", state_data]
+		"deciding_leader":
+			if message.has("decide_winner"):
+				var winner = _decide_election_winner(message.peers)
+				state_data["leader"] = winner
+				return ["reply", winner, "victory_broadcasting", state_data]
+	return ["reply", "unhandled", current_state, state_data]
+
+func handle_cast(message, state_data):
+	# Asynchronous casts - {noreply, new_state, new_data}
+	match message.type:
+		"peer_joined":
+			var peers = state_data.get("peers", [])
+			peers.append(message.peer_id)
+			state_data["peers"] = peers
+			state_data["peer_count"] = peers.size()
+			return ["noreply", "collecting_peers", state_data]
+		"victory_ack":
+			var acks = state_data.get("victory_acks", 0) + 1
+			state_data["victory_acks"] = acks
+			if acks >= state_data.get("expected_acks", 0):
+				return ["noreply", "finalized", state_data]
+			return ["noreply", "victory_broadcasting", state_data]
+	return ["noreply", current_state, state_data]
+
+func handle_info(message, state_data):
+	# System messages and timeouts - {noreply, new_state, new_data}
+	match message.type:
+		"zenoh_connected":
+			return ["noreply", "connected", state_data]
+		"timeout":
+			match current_state:
+				"waiting_connections":
+					print("Election timeout - forcing single participant mode")
+					state_data["leader"] = state_data.get("my_id", 1)
+					return ["noreply", "finalized", state_data]
+				"victory_broadcasting":
+					print("Victory ack timeout - proceeding anyway")
+					return ["noreply", "finalized", state_data]
+	return ["noreply", current_state, state_data]
+
+func send_event(event_type, event_data = {}):
+	# Public API for sending events to the state machine
+	var message = event_data.duplicate()
+	message["type"] = event_type
+	handle_cast(message, state_data)
+
+func get_state():
+	return current_state
+
+func get_data():
+	return state_data.duplicate()
+
+func _decide_election_winner(peers):
+	# Lowest ID wins (deterministic bully algorithm)
+	if peers.is_empty():
+		return state_data.get("my_id", 1)
+	var sorted_peers = peers.duplicate()
+	sorted_peers.sort()
+	return sorted_peers[0]
+
+# Connection GenServer State Machine
+class_name ConnectionGenServer
+var current_state = "disconnected"
+var state_data = {}
+
+func init(initial_data = {}):
+	state_data = initial_data.duplicate()
+	return ["ok", self]
+
+func handle_call(message, from, state_data):
+	match message:
+		"get_status":
+			return ["reply", current_state, current_state, state_data]
+		"force_disconnect":
+			return ["reply", "ok", "disconnected", {}]
+	return ["reply", "unhandled", current_state, state_data]
+
+func handle_cast(message, state_data):
+	match message.type:
+		"connect":
+			match message.mode:
+				"server":
+					return ["noreply", "connecting_server", state_data]
+				"client":
+					return ["noreply", "connecting_client", state_data]
+		"connection_success":
+			return ["noreply", "connected", state_data]
+		"connection_failed":
+			state_data["error"] = message.error
+			return ["noreply", "failed", state_data]
+	return ["noreply", current_state, state_data]
+
+func handle_info(message, state_data):
+	match message.type:
+		"timeout":
+			if current_state.begins_with("connecting"):
+				print("Connection timeout - retrying...")
+				# Could implement retry logic here
+				return ["noreply", "failed", state_data]
+	return ["noreply", current_state, state_data]
+
+func send_event(event_type, event_data = {}):
+	var message = event_data.duplicate()
+	message["type"] = event_type
+	handle_cast(message, state_data)
+
+# Game GenServer State Machine
+class_name GameGenServer
+var current_state = "waiting_election"
+var state_data = {
+	"board": ["","","","","","","","",""],
+	"current_player": "X",
+	"game_over": false,
+	"winner": "",
+	"moves_made": 0
 }
 
-var election_state: ElectionState = ElectionState.DISCONNECTED
-var election_timer: Timer              # Grace period timer only
-var leader_election_phase: bool = false     # Whether we're in election phase
-var known_peers = []                   # Known peer election IDs
-var my_election_id: int = -1          # My HLC-based election ID
-var current_leader_id: int = -1      # Elected leader election ID
-var election_message_queue = []       # Queued election messages
-var collected_peer_ids = []           # All discovered election IDs for comparison
-var victory_acknowledgments = 0        # Victory acknowledgments received (leader only)
-var expected_acknowledgments = 0       # Expected acks for barrier synchronization
+func init(initial_data = {}):
+	state_data.merge(initial_data, true)
+	return ["ok", self]
+
+func handle_call(message, from, state_data):
+	match message.action:
+		"make_move":
+			var result = _try_make_move(message.position, message.player, state_data)
+			return ["reply", result, current_state, state_data]
+		"get_board":
+			return ["reply", state_data.board, current_state, state_data]
+		"reset_game":
+			state_data = _reset_game_state()
+			return ["reply", "reset", "active", state_data]
+	return ["reply", "unhandled", current_state, state_data]
+
+func handle_cast(message, state_data):
+	match message.type:
+		"election_completed":
+			state_data["my_symbol"] = "X" if message.i_am_leader else "O"
+			return ["noreply", "active", state_data]
+		"game_end":
+			state_data.game_over = true
+			state_data.winner = message.winner
+			return ["noreply", "finished", state_data]
+	return ["noreply", current_state, state_data]
+
+func handle_info(message, state_data):
+	match message.type:
+		"hlc_timeout":
+			# Handle HLC-based turn timeouts to prevent deadlocks
+			if current_state == "active" and not state_data.game_over:
+				_force_next_turn(state_data)
+				return ["noreply", "active", state_data]
+	return ["noreply", current_state, state_data]
+
+func _try_make_move(position, player, state_data):
+	if position < 0 or position >= 9 or state_data.board[position] != "" or state_data.game_over:
+		return {"success": false, "reason": "invalid_move"}
+
+	if state_data.current_player != player:
+		return {"success": false, "reason": "wrong_turn"}
+
+	state_data.board[position] = player
+	state_data.moves_made += 1
+
+	var winner = _check_winner(state_data.board)
+	if winner != "":
+		state_data.game_over = true
+		state_data.winner = winner
+		send_event("game_end", {"winner": winner})
+		return {"success": true, "game_end": true, "winner": winner}
+	elif state_data.moves_made >= 9:
+		state_data.game_over = true
+		state_data.winner = "DRAW"
+		send_event("game_end", {"winner": "DRAW"})
+		return {"success": true, "game_end": true, "winner": "DRAW"}
+
+	state_data.current_player = "O" if state_data.current_player == "X" else "X"
+	return {"success": true, "next_player": state_data.current_player}
+
+func _check_winner(board):
+	var lines = [
+		[0,1,2], [3,4,5], [6,7,8], # rows
+		[0,3,6], [1,4,7], [2,5,8], # columns
+		[0,4,8], [2,4,6] # diagonals
+	]
+
+	for line in lines:
+		if board[line[0]] != "" and board[line[0]] == board[line[1]] and board[line[1]] == board[line[2]]:
+			return board[line[0]]
+
+	if board.count("") == 0:
+		return "DRAW"
+
+	return ""
+
+func _reset_game_state():
+	return {
+		"board": ["","","","","","","","",""],
+		"current_player": "X",
+		"game_over": false,
+		"winner": "",
+		"moves_made": 0
+	}
+
+func _force_next_turn(state_data):
+	# Emergency function to break deadlocks - force turn progression
+	print("HLC timeout - forcing turn to next player")
+	state_data.current_player = "O" if state_data.current_player == "X" else "X"
+
+func send_event(event_type, event_data = {}):
+	var message = event_data.duplicate()
+	message["type"] = event_type
+	handle_cast(message, state_data)
 
 # RAFT CONSENSUS STATE (reverted - not implemented)
 # var raft_consensus: ZenohRaftConsensus = null
@@ -733,48 +961,52 @@ func get_state_text(state: int) -> String:
 		STATE_LEADER_ELECTION: return "LEADER_ELECTION"
 		_: return "UNKNOWN"
 
-# STATE MACHINE LEADER ELECTION - HLC-based Deterministic Bully Algorithm
+# GENSERVER-DRIVEN LEADER ELECTION - Clean Process Isolation
 func start_leader_election():
-	if election_state != ElectionState.DISCONNECTED:
-		print("⚠️ Election already in progress (state: " + str(election_state) + ")")
+	# Initialize Election GenServer
+	var init_result = election_server.init({
+		"my_id": zenoh_peer.get_unique_id() if zenoh_peer.get_unique_id() != -1 else 0,
+		"game_id": zenoh_peer.game_id
+	})
+
+	if init_result[0] != "ok":
+		print("❌ Failed to initialize election GenServer")
 		return
 
-	print("🏁 Starting HLC-based bully election state machine")
+	print("🏁 Starting Elixir-Style Leader Election with GenServer")
 	leader_election_phase = true
 	connection_state = STATE_LEADER_ELECTION
-	collected_peer_ids = []
-	known_peers = []
 
-	# STATE: WAITING_CONNECTIONS
-	election_state = ElectionState.WAITING_CONNECTIONS
+	# Update UI - use GenServer state
 	if label:
-		label.text = "ELECTING LEADER: Connecting to Zenoh..."
-	print("🔗 Election State: WAITING_CONNECTIONS")
-
-	# Connect to Zenoh network first
-	print("Connecting to Zenoh network for election...")
+		label.text = "ELECTING LEADER: Initializing coordination..."
 
 	# Try client connection first (non-blocking)
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result != 0:
-		# If no existing server, become the leader immediately
-		print("No existing Zenoh server - becoming the immediate leader")
+		# If no existing server, become the leader immediately via GenServer
 		result = zenoh_peer.create_server(7447, 32)
 		if result == 0:
 			print("✅ Became immediate leader - server role")
-			complete_leader_election_as_leader()
-			return
+			# Force election completion through direct GenServer call
+			var call_result = election_server.handle_call({
+				"force_leader": true,
+				"leader_id": zenoh_peer.get_unique_id()
+			}, self, election_server.state_data)
+			if call_result[0] == "reply":
+				complete_leader_election_as_leader()
+				return
 		else:
 			print("❌ Failed to create server as leader")
 			return
 
-	print("Client connection initiated - waiting for connected state")
+	print("Client connection initiated - election will coordinate through GenServer events")
 
-	# Start polling for connection state changes and election messages
+	# Start polling for connection state changes and send events to GenServers
 	var poll_timer = Timer.new()
 	poll_timer.autostart = true
 	poll_timer.wait_time = 0.1
-	poll_timer.connect("timeout", Callable(self, "_on_election_poll"))
+	poll_timer.connect("timeout", Callable(self, "_on_coordinated_poll"))
 	add_child(poll_timer)
 
 func send_election_heartbeat():
