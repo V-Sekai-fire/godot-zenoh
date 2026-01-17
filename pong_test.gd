@@ -297,8 +297,11 @@ func _on_poll_timeout():
 		var zid = zenoh_peer.get_zid()
 		print("Connection completed in election - ID: " + str(my_id) + " | ZID: " + zid)
 
-		# Now that we have real peer ID, restart election with proper IDs
-		print("⚡ Restarting election with real peer ID " + str(my_id))
+		# Signal to all participants that final election phase should begin
+		print("📢 Broadcasting final election signal - I now have real peer ID #" + str(my_id))
+		signal_final_election()
+
+		# Restart election in final phase (wait short time for signals)
 		restart_election_with_real_id()
 
 		# Update UI
@@ -528,33 +531,52 @@ func _on_election_poll():
 					if label:
 						label.text = "ELECTING LEADER... Found " + str(known_peers.size()) + " peers"
 
+func signal_final_election():
+	print("🏁 Signalling final election to all participants!")
+	var signal_msg = "FINAL_ELECT:" + str(my_id) + ":" + str(zenoh_peer.get_zid())
+	var data = PackedByteArray()
+	data.append_array(signal_msg.to_utf8_buffer())
+
+	zenoh_peer.put_packet(data)
+	print("Sent final election signal: " + signal_msg)
+
 func _on_election_timeout():
 	print("Election timeout - analyzing " + str(known_peers.size()) + " discovered peers")
 
-	# CRITICAL: Don't complete election until we have real peer IDs
-	if my_id == -1:
-		print("⚠️ Delaying election - still using temporary ID, restarting...")
+	var real_peers = []
+
+	# Collect only real peer IDs (normal integer ranges, not timestamp-based)
+	for peer_id in known_peers:
+		if peer_id < 1000:  # Zenoh peer IDs are usually < 1000
+			real_peers.append(peer_id)
+
+	# Include our own real ID if available
+	if my_id != -1 and my_id < 1000:
+		real_peers.append(my_id)
+
+	print("Real peers collected: " + str(real_peers))
+
+	if real_peers.size() > 0:
+		# Complete election with all known real IDs
+		real_peers.sort()
+		var leader_id = real_peers[0]
+		print("🏆 ELECTION COMPLETE: Lowest real ID leader is #" + str(leader_id))
+
+		if leader_id == my_id:
+			print("✅ I WON THE ELECTION - becoming server leader")
+			complete_leader_election_as_leader()
+		else:
+			print("✅ Election over - connecting as client to leader #" + str(leader_id))
+			complete_leader_election_as_follower()
+
+	elif my_id == -1:
+		# Still using temporary ID - extend election
+		print("🔄 Still using temporary ID - extending election phase")
 		restart_election_with_timeout_extension()
-		return
-
-	# Add self to known peers (now with real ID)
-	known_peers.append(my_id)
-	var all_peers = known_peers.duplicate()
-	all_peers.sort()
-	print("All peers in election: " + str(all_peers))
-
-	# Lowest ID becomes leader
-	var leader_id = all_peers[0]
-	print("🏆 Leader selected: Peer #" + str(leader_id) + " (lowest ID)")
-
-	if leader_id == my_id:
-		# I am the leader!
-		print("✅ I am the LEADER - promoting to server")
-		complete_leader_election_as_leader()
 	else:
-		# I am a follower
-		print("✅ I am a FOLLOWER - connecting as client to Leader #" + str(leader_id))
-		complete_leader_election_as_follower()
+		# Have real ID but no other real IDs yet - wait briefly for others to signal
+		print("⏳ Have real ID but waiting for other real participants...")
+		restart_election_with_timeout_extension()
 
 func restart_election_with_timeout_extension():
 	# Extend election timeout again until we have real peer IDs
