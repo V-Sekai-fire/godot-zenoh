@@ -165,19 +165,24 @@ func _on_poll_timeout():
 	# Poll for network messages
 	zenoh_peer.poll()
 
+	var packet_count = zenoh_peer.get_available_packet_count()
+	if packet_count > 0:
+		print("DEBUG: " + str(packet_count) + " packets available")
+
 	# Check for received packets
 	while zenoh_peer.get_available_packet_count() > 0:
 		var data = zenoh_peer.get_packet()
-
-		# Convert bytes to string
-		var message = data.get_string_from_utf8()
-		print("Received: " + message)
+		var data_string = data.get_string_from_utf8()
+		print("DEBUG: Received packet with length " + str(data.size()) + " bytes")
+		print("DEBUG: Packet content: '" + data_string + "'")
 
 		# Handle countdown message
-		if message.begins_with("COUNT:"):
-			var count_str = message.substr(6)
+		if data_string.begins_with("COUNT:"):
+			var count_str = data_string.substr(6)
 			var count = int(count_str)
 			last_received_count = count
+
+			print("DEBUG: Parsed count = " + str(count) + " from '" + count_str + "'")
 
 			# Reset and start counting down from 10
 			countdown_number = 10
@@ -190,6 +195,12 @@ func _on_poll_timeout():
 			countdown_timer.stop()
 			_send_count()
 			countdown_timer.start()
+		else:
+			print("DEBUG: Received non-COUNT message: '" + data_string + "'")
+	else:
+		# Debug poll - remove this after testing
+		if not is_host:
+			print("DEBUG: Client polling, no packets available")
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
