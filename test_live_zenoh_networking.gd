@@ -6,8 +6,8 @@ var zenoh_peer: ZenohMultiplayerPeer
 var test_stage: int = 0
 
 func _ready():
-    print("🚀 LIVE ZENOHD NETWORKING TEST STARTED")
-    print("==========================================")
+    print("Live Zenoh Networking Test Started")
+    print("===================================")
     print("Connecting Godot GDExtension to zenohd router...")
 
     # Create the Zenoh multiplayer peer
