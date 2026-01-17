@@ -88,9 +88,11 @@ func _on_join_pressed():
 		var client_id = zenoh_peer.get_unique_id()
 		label.text = "Joined game - Player ID: " + str(client_id)
 		print("Client Player ID: " + str(client_id))
+		print("DEBUG: Verifying client ID assignment...")
 		setup_networking()
 	else:
 		label.text = "Failed to join: " + str(result)
+		print("DEBUG: Client connection failed with result: " + str(result))
 
 func setup_networking():
 	print("Networking setup complete")
@@ -166,8 +168,6 @@ func _on_poll_timeout():
 	# Poll for network messages
 	zenoh_peer.poll()
 
-	var packet_count = zenoh_peer.get_available_packet_count()
-
 	# Check for received packets
 	while zenoh_peer.get_available_packet_count() > 0:
 		var data = zenoh_peer.get_packet()
@@ -193,7 +193,7 @@ func _on_poll_timeout():
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (legacy format)")
 
 			# Filter out self-messages (don't process your own packets)
-			var my_id = zenoh_peer.get_unique_id()
+			my_id = zenoh_peer.get_unique_id()
 			if from_player_id == my_id:
 				print("Ignored self-message")
 				continue  # Skip processing self-messages
