@@ -17,6 +17,10 @@ var winner: String = ""                  # "X", "O", or "DRAW"
 var my_symbol: String = ""               # Assigned during game start
 var moves_made: int = 0                  # Total moves played
 
+# Legacy variables for disabled countdown code (prevent parser errors)
+var countdown_number: int = 10
+var last_received_count: int = -1
+
 var button: Button
 var label: Label
 var host_button: Button
@@ -314,7 +318,7 @@ func _on_tic_tac_toe_poll():
 
 	# Handle peer assignments for followers
 	if not is_host and (my_symbol == "" or my_symbol == "WAITING"):
-		_my_symbol = "O" # Followers get O
+		my_symbol = "O" # Followers get O
 		if label:
 			label.text = "FOLLOWER: I am O - waiting for X to move..."
 
