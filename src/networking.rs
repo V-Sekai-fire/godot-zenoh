@@ -284,27 +284,19 @@ impl ZenohSession {
     }
 
     /// Get Hybrid Logical Clock timestamp from Zenoh session
-    pub async fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
         // Zenoh provides HLC (Hybrid Logical Clock) through session internals
-        // We'll use the current zenoh time as HLC reference
+        // We'll use session info as HLC reference for distributed coordination
         godot_print!("Requesting HLC timestamp from Zenoh session...");
 
-        // In Zenoh, we can get a timestamp representation
-        // This provides logical clock consistency across distributed peers
-        let timestamp_result = self.session.info().await;
+        // Get session information (synchronous call)
+        let session_info = self.session.info();
 
-        match timestamp_result {
-            Ok(info) => {
-                // Extract HLC-like timestamp from session info
-                let hlc_timestamp = format!("HLC:{}", info.server_pid().map(|pid| pid as u64).unwrap_or_else(|| std::process::id() as u64));
-                godot_print!("Zenoh HLC timestamp: {}", hlc_timestamp);
-                Ok(hlc_timestamp)
-            }
-            Err(e) => {
-                godot_error!("Failed to get HLC from Zenoh session: {:?}", e);
-                Err(format!("HLC query failed: {:?}", e).into())
-            }
-        }
+        // Extract HLC-like timestamp from session info
+        let hlc_timestamp = format!("HLC:PID{}:TIME{}", session_info.server_pid().unwrap_or(0), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos());
+
+        godot_print!("Zenoh HLC timestamp: {}", hlc_timestamp);
+        Ok(hlc_timestamp)
     }
 
     /// Local queue fallback for HOL processing

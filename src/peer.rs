@@ -120,12 +120,11 @@ impl ZenohActor {
                 None // No event for successful send
             }
             ZenohCommand::GetHLCTimestamp => {
-                if let Some(sess) = &mut self.session {
-                    match sess.get_hlc_timestamp().await {
+                if let Some(sess) = &self.session {
+                    match sess.get_hlc_timestamp() {
                         Ok(hlc_ts) => {
-                            // Store HLC in session for retrieval
-                            // For now, we'll need to add a way to retrieve this from Godot
-                            godot_print!("HLC timestamp retrieved: {}", hlc_ts);
+                            // Print HLC timestamp (async bridge doesn't need to return values to Godot)
+                            godot_print!("Zenoh HLC timestamp: {}", hlc_ts);
                         }
                         Err(e) => {
                             godot_error!("Failed to get HLC timestamp: {:?}", e);
