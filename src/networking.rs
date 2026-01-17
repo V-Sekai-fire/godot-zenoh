@@ -1,10 +1,10 @@
-use godot::prelude::*;
-use godot::global::Error;
 use godot::builtin::GString;
+use godot::global::Error;
+use godot::prelude::*;
+use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use std::collections::VecDeque;
-use std::collections::HashMap;
 use zenoh::Config as ZenohConfig;
 // ZBuf import will be added when zenoh 1.7.2 module structure is known
 // For now using Vec<u8> - will replace with native ZBuf once located
@@ -55,7 +55,10 @@ impl ZenohSession {
         if !address.is_empty() && port > 0 {
             // Connect to specific Zenoh router endpoint using QUIC for superior performance
             let endpoint = format!("quic/{}:{}", address, port);
-            godot_print!("🚀 Connecting Zenoh CLIENT to router via QUIC: {}", endpoint);
+            godot_print!(
+                "🚀 Connecting Zenoh CLIENT to router via QUIC: {}",
+                endpoint
+            );
 
             // Set QUIC endpoint for router connection using zenoh 1.7.2 Endpoint creation
             let endpoint_str = format!("quic/{}:{}", address, port);
@@ -63,7 +66,10 @@ impl ZenohSession {
             if let Ok(endpoint) = endpoint_str.parse::<EndPoint>() {
                 config.connect.endpoints = ModeDependentValue::Unique(vec![endpoint]);
             } else {
-                godot_print!("⚠️ Failed to parse endpoint {}, falling back to defaults", endpoint_str);
+                godot_print!(
+                    "⚠️ Failed to parse endpoint {}, falling back to defaults",
+                    endpoint_str
+                );
             }
         } else {
             godot_print!("🌐 Creating Zenoh CLIENT with default peer discovery");
@@ -85,7 +91,11 @@ impl ZenohSession {
         // Generate unique peer ID for client (1-1000)`
         let peer_id = (rand::random::<u32>() % 999 + 1) as i64;
 
-        godot_print!("✅ Zenoh CLIENT connected - Peer ID: {}, Game: {}", peer_id, game_id);
+        godot_print!(
+            "✅ Zenoh CLIENT connected - Peer ID: {}, Game: {}",
+            peer_id,
+            game_id
+        );
 
         Ok(ZenohSession {
             session,
@@ -105,7 +115,10 @@ impl ZenohSession {
         packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        godot_print!("🎯 Creating Zenoh SERVER router on port {} - HOL blocking prevention ENABLED", port);
+        godot_print!(
+            "🎯 Creating Zenoh SERVER router on port {} - HOL blocking prevention ENABLED",
+            port
+        );
 
         // Configure as Zenoh router (server mode)
         let mut config = zenoh_config::Config::default();
@@ -120,8 +133,12 @@ impl ZenohSession {
             let quic_endpoint = format!("quic/127.0.0.1:{}", port);
             let tcp_endpoint = format!("tcp/127.0.0.1:{}", port + 1000); // TCP fallback on port+1000
             let http_endpoint = format!("http/127.0.0.1:{}", port + 2000); // HTTP API on port+2000
-            godot_print!("⚡ Configuring Zenoh SERVER with QUIC: QUIC={}, TCP={}, HTTP={}",
-                        quic_endpoint, tcp_endpoint, http_endpoint);
+            godot_print!(
+                "⚡ Configuring Zenoh SERVER with QUIC: QUIC={}, TCP={}, HTTP={}",
+                quic_endpoint,
+                tcp_endpoint,
+                http_endpoint
+            );
 
             // Parse endpoints directly for server configuration
             let mut endpoints = Vec::new();
@@ -144,7 +161,10 @@ impl ZenohSession {
 
         // Configure connection limits if max_clients specified
         if max_clients > 0 {
-            godot_print!("👥 Server configured for max {} client connections", max_clients);
+            godot_print!(
+                "👥 Server configured for max {} client connections",
+                max_clients
+            );
             // Note: Zenoh doesn't have direct client limits, but we document the intention
             // In a real implementation, this could configure QoS or connection acceptance policies
         } else {
@@ -164,7 +184,11 @@ impl ZenohSession {
 
         let session = Arc::new(session);
 
-        godot_print!("✅ Zenoh SERVER router started on port {}, Game: {}", port, game_id);
+        godot_print!(
+            "✅ Zenoh SERVER router started on port {}, Game: {}",
+            port,
+            game_id
+        );
 
         Ok(ZenohSession {
             session,
@@ -186,15 +210,26 @@ impl ZenohSession {
             let data = p_buffer.to_vec(); // Use Vec<u8> directly
 
             if let Err(e) = publisher.put(data).await {
-                godot_error!("Failed to send Zenoh packet on channel {}: {:?}", channel, e);
+                godot_error!(
+                    "Failed to send Zenoh packet on channel {}: {:?}",
+                    channel,
+                    e
+                );
                 return Error::FAILED;
             }
 
-            godot_print!("📤 Packet sent via Zenoh HOL channel {} (size: {})", channel, p_buffer.len());
+            godot_print!(
+                "📤 Packet sent via Zenoh HOL channel {} (size: {})",
+                channel,
+                p_buffer.len()
+            );
             return Error::OK;
         }
 
-        godot_print!("⚠️ Zenoh publisher not ready for channel {}, queuing locally", channel);
+        godot_print!(
+            "⚠️ Zenoh publisher not ready for channel {}, queuing locally",
+            channel
+        );
         self.queue_packet_locally(p_buffer, channel, self.peer_id);
         Error::OK
     }
@@ -205,7 +240,11 @@ impl ZenohSession {
         let packet_queues = Arc::clone(&self.packet_queues);
         let peer_id = self.peer_id;
 
-        godot_print!("🎛️ Setting up Zenoh HOL virtual channel {} for peer {}", channel, peer_id);
+        godot_print!(
+            "🎛️ Setting up Zenoh HOL virtual channel {} for peer {}",
+            channel,
+            peer_id
+        );
 
         // Lazy initialization of publisher
         {
@@ -213,7 +252,9 @@ impl ZenohSession {
             if publishers.get(&channel).is_none() {
                 let session = Arc::clone(&self.session);
                 let publisher_result = self.runtime.block_on(async move {
-                    let topic: &'static str = Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
+                    let topic: &'static str = Box::leak(
+                        format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
+                    );
                     session.declare_publisher(topic).await
                 });
 
@@ -223,7 +264,11 @@ impl ZenohSession {
                         godot_print!("✅ Zenoh publisher created for HOL channel {}", channel);
                     }
                     Err(e) => {
-                        godot_error!("❌ Failed to create Zenoh publisher for channel {}: {:?}", channel, e);
+                        godot_error!(
+                            "❌ Failed to create Zenoh publisher for channel {}: {:?}",
+                            channel,
+                            e
+                        );
                         return Error::FAILED;
                     }
                 }
@@ -270,7 +315,11 @@ impl ZenohSession {
                         godot_print!("✅ Zenoh subscriber created for HOL channel {}", channel);
                     }
                     Err(e) => {
-                        godot_error!("❌ Failed to create Zenoh subscriber for channel {}: {:?}", channel, e);
+                        godot_error!(
+                            "❌ Failed to create Zenoh subscriber for channel {}: {:?}",
+                            channel,
+                            e
+                        );
                         return Error::FAILED;
                     }
                 }
@@ -279,8 +328,6 @@ impl ZenohSession {
 
         Error::OK
     }
-
-
 
     /// Local queue fallback for HOL processing
     fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, _from_peer_id: i64) {
@@ -294,6 +341,9 @@ impl ZenohSession {
         };
 
         let mut queues = self.packet_queues.lock().unwrap();
-        queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
+        queues
+            .entry(channel)
+            .or_insert_with(VecDeque::new)
+            .push_back(packet);
     }
 }
