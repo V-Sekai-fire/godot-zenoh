@@ -177,59 +177,17 @@ func _on_join_pressed():
 		print("Already connected - cannot join as another client")
 		return
 
-	# STATE MACHINE: Set connecting state (avoid modifying zenoh_peer state directly)
-	connection_state = STATE_CONNECTING
-
-	# Add delay for server to be ready (but continue attempting in background)
-	print("⏳ Waiting 2 seconds for server to fully initialize...")
-	await get_tree().create_timer(2.0).timeout
-
+	# No blocking delays - server readiness is handled by state machine
 	connection_state = STATE_CLIENT_ATTEMPTING
 
-	# Join server
+	# Join server immediately
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result == 0:
-		# Wait for connection to complete (poll until connected or timeout)
-		var connection_timeout = 5.0  # 5 second timeout
-		var start_time = Time.get_unix_time_from_system()
-		var elapsed = 0.0
-
-		while elapsed < connection_timeout:
-			zenoh_peer.poll()  # Process async commands
-
-			if zenoh_peer.connection_status() == 2:  # CONNECTED
-				var client_id = zenoh_peer.get_unique_id()
-				var zid = ""
-				if zenoh_peer.has_method("get_zid"):
-					zid = zenoh_peer.get_zid()
-				else:
-					zid = "get_zid not available"
-
-				connection_state = STATE_CONNECTED
-				if label:
-					label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
-				print("Client connected - ID: " + str(client_id) + " | ZID: " + zid)
-				setup_networking()
-				return
-
-			await get_tree().create_timer(0.1).timeout  # Wait 100ms
-			elapsed = Time.get_unix_time_from_system() - start_time
-
-		# Timeout - check final status
-		var final_status = zenoh_peer.connection_status()
-		if final_status == 2:  # CONNECTED
-			var client_id = zenoh_peer.get_unique_id()
-			var zid = zenoh_peer.get_zid()
-			connection_state = STATE_CONNECTED
-			if label:
-				label.text = "Player ID: " + str(client_id) + " | ZID: " + zid
-			print("Client connected after timeout - ID: " + str(client_id) + " | ZID: " + zid)
-			setup_networking()
-		else:
-			connection_state = STATE_ZENOH_SESSION_FAILED
-			if label:
-				label.text = "Connection timeout | Status: " + str(final_status)
-			print("❌ Client connection timeout - Status: " + str(final_status))
+		print("Client connection initiated - status: CONNECTING")
+		# Connection events handled by poll() state machine callbacks
+		# No polling loops or await blocks in GDscript
+		if label:
+			label.text = "Client connection in progress..."
 	else:
 		# STATE MACHINE: Complete failure
 		connection_state = STATE_FAILED
@@ -323,8 +281,20 @@ func _on_countdown_tick():
 	pass
 
 func _on_poll_timeout():
-	# Poll for network messages
+	# Poll for network messages and connection state
 	zenoh_peer.poll()
+
+	# Handle connection completion during leader election
+	if leader_election_phase and my_id == -1 and zenoh_peer.connection_status() == 2:
+		my_id = zenoh_peer.get_unique_id()
+		var zid = zenoh_peer.get_zid()
+		print("Connection completed in election - ID: " + str(my_id) + " | ZID: " + zid)
+
+		# Send heartbeat now that we're connected
+		send_election_heartbeat()
+
+		# Update UI
+		update_peer_info()
 
 	# Check for received packets
 	while zenoh_peer.get_available_packet_count() > 0:
@@ -473,10 +443,10 @@ func start_leader_election():
 	# Connect to Zenoh network first
 	print("Connecting to Zenoh network for leader election...")
 
-	# Create client connection for leader election (all peers start as clients)
+	# Try client connection first for leader election (non-blocking)
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result != 0:
-		# If server doesn't exist, become the first server
+		# If server doesn't exist, become the first server immediately
 		print("No existing server found - becoming the leader")
 		result = zenoh_peer.create_server(7447, 32)
 		if result == 0:
@@ -487,20 +457,11 @@ func start_leader_election():
 			print("❌ Failed to create server as leader")
 			return
 
-	# Wait for connection (polling timeout)
-	var connect_timeout = 5.0
-	var start_time = Time.get_unix_time_from_system()
-	while zenoh_peer.connection_status() != 2 and Time.get_unix_time_from_system() - start_time < connect_timeout:
-		zenoh_peer.poll()
-		await get_tree().create_timer(0.1).timeout
-
-	if zenoh_peer.connection_status() != 2:
-		print("❌ Connection timeout - leader election failed")
-		return
-
-	my_id = zenoh_peer.get_unique_id()
-	var zid = zenoh_peer.get_zid()
-	print("Connected successfully - ID: " + str(my_id) + " | ZID: " + zid)
+	# Client connection initiated - connection state will be updated asynchronously
+	# through the poll() state machine callbacks (no blocking/polling loops)
+	print("Client connection initiated - election will proceed when connected")
+	# The election timer and polling will handle the connection state
+	# This is pure event-driven - no await loops waiting for connection
 
 	# Send heartbeat to announce presence
 	send_election_heartbeat()
