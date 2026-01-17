@@ -245,7 +245,7 @@ impl ZenohSession {
 
                 let subscriber_result = self.runtime.block_on(async {
                     let topic: &'static str = Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
-                    let _packet_queues = packet_queues.clone();
+                    let packet_queues = packet_queues.clone();
 
                     session.declare_subscriber(topic)
                         .callback(move |sample| {
@@ -264,7 +264,7 @@ impl ZenohSession {
                                 data,
                             };
 
-                            let mut queues = _packet_queues.lock().unwrap();
+                            let mut queues = packet_queues.lock().unwrap();
                             queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
                         })
                         .await
