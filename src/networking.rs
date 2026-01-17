@@ -16,10 +16,6 @@ use zenoh_config::{EndPoint, ModeDependentValue};
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
-    #[allow(dead_code)] // Future diagnostics, debugging topics
-    pub topic: GString,
-    /// Channel (0=highest priority, 255=lowest priority)
-    #[allow(dead_code)] // Future channel diagnostics, priority verification
     pub hol_priority: i32,
 }
 
