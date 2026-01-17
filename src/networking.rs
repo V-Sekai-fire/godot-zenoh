@@ -174,18 +174,12 @@ impl ZenohSession {
                 return Error::FAILED;
             }
 
-            // Only log sent packets occasionally to reduce spam
-            static mut SEND_COUNTER: u32 = 0;
-            unsafe {
-                SEND_COUNTER += 1;
-                if SEND_COUNTER % 20 == 0 {  // Log every 20th packet
-                    godot_print!(
-                        "📤 Packet sent via Zenoh HOL channel {} (size: {})",
-                        channel,
-                        p_buffer.len()
-                    );
-                }
-            }
+            // Debug: Always log sent packets for now
+            godot_print!(
+                "📤 DEBUG: Packet sent via Zenoh HOL channel {} (size: {})",
+                channel,
+                p_buffer.len()
+            );
         }
 
         godot_print!(
@@ -262,22 +256,9 @@ impl ZenohSession {
                             let topic_str = sample.key_expr().as_str();
                             let hol_priority = channel; // Extract from topic or use channel mapping
 
-                            // Reduce logging for received packets - only log occasionally
-                            static mut LOG_COUNTER: u32 = 0;
-                            unsafe {
-                                LOG_COUNTER += 1;
-                                if LOG_COUNTER % 5 == 0 {  // Log every 5th packet for debugging
-                                    godot_print!("📥 HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
-                                               topic_str, hol_priority, sample.payload().len());
-                                }
-                            }
-
-                            let packet = Packet {
-                                data,
-                            };
-
-                            let mut queues = packet_queues.lock().unwrap();
-                            queues.entry(channel).or_insert_with(VecDeque::new).push_back(packet);
+                            // Debug: Always log received packets for now
+                            godot_print!("📥 DEBUG: HOL PREVENTION: RECEIVED PACKET on topic '{}' (channel: {}, size: {})",
+                                   topic_str, hol_priority, sample.payload().len());
 
                             // Remove per-packet queuing log to reduce spam
                         })
