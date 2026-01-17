@@ -49,6 +49,8 @@ var my_election_id: int = -1          # My HLC-based election ID
 var current_leader_id: int = -1      # Elected leader election ID
 var election_message_queue = []       # Queued election messages
 var collected_peer_ids = []           # All discovered election IDs for comparison
+var victory_acknowledgments = 0        # Victory acknowledgments received (leader only)
+var expected_acknowledgments = 0       # Expected acks for barrier synchronization
 
 # RAFT CONSENSUS STATE (reverted - not implemented)
 # var raft_consensus: ZenohRaftConsensus = null
@@ -764,14 +766,51 @@ func _process_election_message(msg: String):
 		if parts.size() >= 4:
 			var winner_election_id = int(parts[1])
 			var winner_zid = parts[2]
+			var requires_ack = parts.size() >= 5 and parts[4] == "ACK_REQUIRED"
 			print("🎉 VICTORY MESSAGE received from #" + str(winner_election_id) + " (" + winner_zid + ")")
 
-			if election_state == ElectionState.VICTORY_LISTENING:
-				if winner_election_id == my_election_id:
-					print("✅ That's me! I won the election")
+			# 🎯 CRITICAL FIX: Process victory messages from ANY state (not just VICTORY_LISTENING)
+			# Followers must be able to respond to victory messages regardless of their current election state
+
+			if winner_election_id == my_election_id:
+				print("✅ Victory message confirms: I won the election")
+				# I'm the leader - this is just a confirmation
+				if election_state == ElectionState.VICTORY_BROADCASTING:
+					pass  # Already handling the victory process
 				else:
-					print("✅ Another instance won - I will be a follower")
-					complete_leader_election_as_follower()
+					# Something weird happened - force leader state
+					election_state = ElectionState.FINALIZED
+					complete_leader_election_as_leader()
+			else:
+				print("✅ Another instance won - I am becoming a follower")
+				# I'm a follower - send acknowledgment if required
+				if requires_ack:
+					print("📤 Sending victory acknowledgment to leader")
+					var ack_msg = "VICTORY_ACK:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid())
+					var data = PackedByteArray()
+					data.append_array(ack_msg.to_utf8_buffer())
+					zenoh_peer.put_packet(data)
+					print("✅ Sent acknowledgment: " + ack_msg)
+				# 🏆 COMPLETE election as follower regardless of current state
+				complete_leader_election_as_follower()
+
+	elif msg.begins_with("VICTORY_ACK:"):
+		var parts = msg.split(":")
+		if parts.size() >= 3:
+			var ack_from_id = int(parts[1])
+			print("📨 Received victory acknowledgment from #" + str(ack_from_id))
+
+			# Leader: Count acknowledgments and proceed when all received
+			if election_state == ElectionState.VICTORY_BROADCASTING:
+				victory_acknowledgments += 1
+				print("📊 Acknowledgment #" + str(victory_acknowledgments) + "/" + str(expected_acknowledgments) + " received")
+
+				if victory_acknowledgments >= expected_acknowledgments:
+					print("✅ ALL VICTORY ACKNOWLEDGMENTS RECEIVED - SAFE TO PROCEED")
+					election_state = ElectionState.FINALIZED
+					print("🏆 Election complete - I am the SINGLE LEADER")
+					print("🎯 ALL PARTICIPANTS SYNCHRONIZED - Starting Tic-Tac-Toe!")
+					complete_leader_election_as_leader()
 	elif msg.begins_with("FINAL_ELECT:"):
 		print("🔄 Received final election signal - restarting election with real IDs")
 		restart_election_with_real_id()
@@ -885,23 +924,30 @@ func _election_transition_victory_broadcasting():
 	print("🔗 Election State: VICTORY_BROADCASTING")
 
 	if label:
-		label.text = "ELECTING LEADER: Broadcasting victory"
+		label.text = "LEADER: Broadcasting victory & waiting for acknowledgments"
 
-	# Announce victory to all participants
-	var victory_msg = "VICTORY:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid()) + ":HLC_LOWEST_WINS"
+	# TRIPLE BARRIER: Victory + Acknowledgment + State Synchronization
+	# Calculate expected acknowledgments (total participants - 1)
+	var total_participants = collected_peer_ids.size() + 1  # +1 for self
+	var expected_acknowledgments = total_participants - 1
+
+	print("🎯 VICTORY BARRIER: Expecting " + str(expected_acknowledgments) + " victory acknowledgments from followers")
+
+	# Leader state: wait for all acknowledgments before starting game
+	# This ensures EVERY participant reaches the same state before Tic-Tac-Toe begins
+
+	# Announce victory and request acknowledgments
+	var victory_msg = "VICTORY:" + str(my_election_id) + ":" + str(zenoh_peer.get_zid()) + ":HLC_LOWEST_WINS:ACK_REQUIRED"
 	var data = PackedByteArray()
 	data.append_array(victory_msg.to_utf8_buffer())
 
 	var result = zenoh_peer.put_packet(data)
 	if result == 0:
 		print("🌟 Victory broadcast sent: " + victory_msg)
+		if label:
+			label.text = "LEADER: Awaiting victory acknowledgments..."
 	else:
 		print("⚠️ Failed to send victory broadcast")
-
-	# Victory announced - complete election
-	election_state = ElectionState.FINALIZED
-	print("🏆 Election complete - I am the SINGLE LEADER")
-	complete_leader_election_as_leader()
 
 func _election_transition_victory_listening():
 	election_state = ElectionState.VICTORY_LISTENING
