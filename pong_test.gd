@@ -80,6 +80,10 @@ func _on_join_pressed():
 	print("Joining as client...")
 	is_host = false
 
+	# Add delay for server to be ready
+	print("⏳ Waiting 2 seconds for server to fully initialize...")
+	await get_tree().create_timer(2.0).timeout
+
 	# Join server
 	var result = zenoh_peer.create_client("localhost", 7447)
 	if result == 0:
@@ -94,6 +98,7 @@ func _on_join_pressed():
 		setup_networking()
 	else:
 		label.text = "Failed to join: " + str(result)
+		print("❌ Client create_client failed with error: " + str(result))
 
 func setup_networking():
 	print("Networking setup complete")

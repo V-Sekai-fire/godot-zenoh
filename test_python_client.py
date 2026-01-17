@@ -7,7 +7,10 @@ This will help diagnose if the issue is with Godot or with zenoh P2P networking.
 
 import argparse
 import time
-import zenoh
+try:
+    import zenoh
+except ImportError:
+    import eclipse_zenoh as zenoh
 
 def main():
     parser = argparse.ArgumentParser(description="Zenoh Python client for testing Godot-Zenoh connectivity")

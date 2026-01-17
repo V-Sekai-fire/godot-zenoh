@@ -47,12 +47,13 @@ impl ZenohSession {
         // Use Zenoh P2P: Set connect endpoint to connect to server peer (authoritative router)
         let tcp_endpoint = format!("tcp/{}:{}", address, port);
         godot_print!("🔌 Zenoh CLIENT connecting to server peer at: {}", tcp_endpoint);
+
+        // Use environment variable approach (same as server)
         std::env::set_var("ZENOH_CONNECT", tcp_endpoint);
 
-        // Use default zenoh config - peer connects to server peer automatically via environment
-        let zenoh_config = zenoh::Config::default();
+        // Use default zenoh config - environment variable controls connection
         godot_print!("🔧 Zenoh CLIENT attempting to open session...");
-        let session_result = zenoh::open(zenoh_config).await;
+        let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
             Ok(sess) => {
                 let zid = sess.zid().to_string();
