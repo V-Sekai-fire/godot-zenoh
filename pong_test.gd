@@ -83,8 +83,15 @@ func setup_ui():
 
 	# Title
 	var title = Label.new()
-	title.text = "Godot-Zenoh Ping Pong Test"
+	title.text = "Godot-Zenoh Multiplayer Test"
+	title.modulate = Color.GREEN
 	vbox.add_child(title)
+
+	# Features info
+	var info = Label.new()
+	info.text = "Features: Leader Election • Merkle State Hashing • HOL Blocking • Zero-Timer Architecture"
+	info.modulate = Color.LIGHT_BLUE
+	vbox.add_child(info)
 
 	# Connection buttons
 	host_button = Button.new()
@@ -97,14 +104,33 @@ func setup_ui():
 	join_button.connect("pressed", Callable(self, "_on_join_pressed"))
 	vbox.add_child(join_button)
 
+	# Auto-election info
+	var auto_label = Label.new()
+	auto_label.text = "Auto: Multiple instances elect leader with lowest peer ID"
+	vbox.add_child(auto_label)
+
 	# Status label
 	label = Label.new()
-	label.text = "Choose Host or Join to start..."
+	label.text = "Status: Initializing..."
+	label.modulate = Color.YELLOW
 	vbox.add_child(label)
+
+	# Peer info label
+	var peer_label = Label.new()
+	peer_label.name = "peer_info"
+	peer_label.text = "Peer ID: Not connected | Role: Unknown | State: " + get_state_text(connection_state)
+	vbox.add_child(peer_label)
+
+	# Hash divergence counter
+	var hash_label = Label.new()
+	hash_label.name = "hash_status"
+	hash_label.text = "State Divergences: 0 | Last Hash Match: Unknown"
+	hash_label.modulate = Color.LIGHT_GRAY
+	vbox.add_child(hash_label)
 
 	# Send button
 	button = Button.new()
-	button.text = "Send Count to Other Player"
+	button.text = "Send Countdown"
 	button.disabled = true
 	button.connect("pressed", Callable(self, "_on_send_pressed"))
 	vbox.add_child(button)
@@ -391,6 +417,49 @@ func _delayed_response():
 
 func get_other_player_id():
 	return 2 if my_id == 1 else 1
+
+# UI STATUS UPDATE FUNCTIONS
+func update_peer_info():
+	var peer_info_node = find_child("peer_info")
+	if peer_info_node:
+		var role = "Server/Leader" if is_host else "Client/Follower"
+		if connection_state == STATE_LEADER_ELECTION:
+			role = "Electing Leader"
+
+		var zid = ""
+		if zenoh_peer and zenoh_peer.has_method("get_zid"):
+			zid = zenoh_peer.get_zid()
+		else:
+			zid = "N/A"
+
+		peer_info_node.text = "Peer ID: " + str(my_id) + " | Role: " + role + " | State: " + get_state_text(connection_state) + " | ZID: " + zid
+
+func update_hash_status():
+	var hash_node = find_child("hash_status")
+	if hash_node:
+		var last_match = "Unknown"
+		if state_hash_history.size() >= 2:
+			var last_remote = state_hash_history[-2] if state_hash_history.size() >= 2 else ""
+			var last_local = state_hash_history[-1]
+			if last_remote == last_local:
+				last_match = "✅ Match"
+			else:
+				last_match = "🚨 Diverged"
+
+		hash_node.text = "State Divergences: " + str(hash_divergence_count) + " | Last Hash Match: " + last_match
+		hash_node.modulate = Color.RED if hash_divergence_count > 0 else Color.LIGHT_GREEN
+
+func get_state_text(state: int) -> String:
+	match state:
+		STATE_DISCONNECTED: return "DISCONNECTED"
+		STATE_CONNECTING: return "CONNECTING"
+		STATE_CONNECTED: return "CONNECTED"
+		STATE_FAILED: return "FAILED"
+		STATE_SERVER_READY: return "SERVER_READY"
+		STATE_CLIENT_ATTEMPTING: return "CLIENT_ATTEMPTING"
+		STATE_ZENOH_SESSION_FAILED: return "ZENOH_FAILED"
+		STATE_LEADER_ELECTION: return "LEADER_ELECTION"
+		_: return "UNKNOWN"
 
 # LEADER ELECTION FUNCTIONS - Deterministic Bully-like Algorithm
 func start_leader_election():
