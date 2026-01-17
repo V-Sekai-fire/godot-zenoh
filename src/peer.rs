@@ -225,15 +225,11 @@ impl ZenohMultiplayerPeer {
 
         // Fallback: local queuing when no networking session available
         let mut queues = self.packet_queues.lock().unwrap();
-        let fallback_topic =
-            GString::from(format!("game/{}/fallback/{}", self.game_id, channel).as_str());
         queues
             .entry(channel)
             .or_insert_with(VecDeque::new)
             .push_back(Packet {
                 data: p_buffer.to_vec(),
-                topic: fallback_topic,
-                hol_priority: channel,
             });
         Error::OK
     }
@@ -279,12 +275,8 @@ impl ZenohMultiplayerPeer {
             for channel in 200..=220 {
                 for i in 0..5 {
                     let data = vec![channel as u8, i as u8]; // Use Vec<u8> directly
-                    let topic =
-                        GString::from(format!("game/{}/demo/high_priority", self.game_id).as_str());
                     let packet = Packet {
                         data,
-                        topic,
-                        hol_priority: channel,
                     };
                     queues
                         .entry(channel)
@@ -296,12 +288,8 @@ impl ZenohMultiplayerPeer {
             // Add ONE critical packet to channel 0 (should be processed first)
             godot_print!("Adding critical packet to channel 0...");
             let critical_data = vec![0u8, 255u8]; // Use Vec<u8> directly - Channel 0 marker, critical flag
-            let critical_topic =
-                GString::from(format!("game/{}/demo/critical", self.game_id).as_str());
             let critical_packet = Packet {
                 data: critical_data,
-                topic: critical_topic,
-                hol_priority: 0,
             };
             queues
                 .entry(0)

@@ -16,7 +16,6 @@ use zenoh_config::{EndPoint, ModeDependentValue};
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
-    pub hol_priority: i32,
 }
 
 /// Zenoh networking session with HOL blocking prevention
@@ -294,8 +293,6 @@ impl ZenohSession {
 
                             let packet = Packet {
                                 data,
-                                topic: GString::from(topic_str),
-                                hol_priority,
                             };
 
                             let mut queues = packet_queues.lock().unwrap();
@@ -330,12 +327,8 @@ impl ZenohSession {
     /// Local queue fallback for HOL processing
     fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, _from_peer_id: i64) {
         let data = p_buffer.to_vec(); // Use Vec<u8> directly
-        let topic = GString::from(format!("game/{}/fallback/{}", self.game_id, channel).as_str());
-
         let packet = Packet {
             data,
-            topic,
-            hol_priority: channel,
         };
 
         let mut queues = self.packet_queues.lock().unwrap();
