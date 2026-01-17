@@ -147,7 +147,7 @@ impl ZenohAsyncBridge {
 
         // Spawn the worker thread
         let join_handle = thread::spawn(move || {
-            Self::zenoh_worker_thread(actor, cmd_queue_clone, event_queue_clone, stop_flag_clone);
+            let _ = Self::zenoh_worker_thread(actor, cmd_queue_clone, event_queue_clone, stop_flag_clone);
         });
 
         Self {
