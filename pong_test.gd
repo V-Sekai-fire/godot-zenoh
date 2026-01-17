@@ -137,7 +137,8 @@ func setup_ui():
 
 	# HLC Timestamp Request Button
 	var hlc_button = Button.new()
-	hlc_button.text = "Request HLC Timestamp"
+	hlc_button.text = "🎯 Request Zenoh HLC Timestamp"
+	hlc_button.modulate = Color.CYAN
 	hlc_button.connect("pressed", Callable(self, "_on_hlc_request_pressed"))
 	vbox.add_child(hlc_button)
 
