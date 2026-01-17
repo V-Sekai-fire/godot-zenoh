@@ -262,52 +262,26 @@ func _send_count():
 	var current_hash = compute_state_hash()
 	state_hash_history.append(current_hash)
 
-	# Wait for Zenoh publishers to be ready (polling loop instead of random delay)
-	var wait_attempts = 0
-	var max_attempts = 50  # 5 seconds max wait
+	# Send message with Merkle hash: "COUNT:N:FROM_ID:HASH"
+	var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id()) + ":" + current_hash
+	var data = PackedByteArray()
+	data.append_array(message.to_utf8_buffer())
 
-	while wait_attempts < max_attempts:
-		# Send message with Merkle hash: "COUNT:N:FROM_ID:HASH"
-		var message = "COUNT:" + str(countdown_number) + ":" + str(zenoh_peer.get_unique_id()) + ":" + current_hash
-		var data = PackedByteArray()
-		data.append_array(message.to_utf8_buffer())
+	# Record this as a sent response
+	record_response_message(message, 0)  # 0 means broadcast
 
-		# Record this as a sent response
-		record_response_message(message, 0)  # 0 means broadcast
+	# Send immediately - Rust extension handles queuing/publisher readiness
+	# No polling loops, only event-driven state machines
+	var result = zenoh_peer.put_packet(data)
 
-		# In Zenoh pub/sub: EVERY message published is automatically "relayed" to ALL subscribers
-		# This provides the exact same functionality as server relay - no additional code needed!
-		var result = zenoh_peer.put_packet(data)
+	print("Player " + str(zenoh_peer.get_unique_id()) + " queued " + message + " (state machine will publish when ready)")
+	print("📋 MERKLE STATE HASH: " + current_hash + " (state divergence tracking)")
 
-		# Poll for publisher readiness
-		zenoh_peer.poll()
-		await get_tree().create_timer(0.1).timeout  # Poll every 100ms
-
-		# Check if packet was actually published (not queued locally)
-		# but after polling, if we still have available packets, it means they were published
-		var packet_count_before = zenoh_peer.get_available_packet_count()
-		zenoh_peer.poll()  # Another poll to ensure async updates
-		var packet_count_after = zenoh_peer.get_available_packet_count()
-
-		if result == 0 and packet_count_before < packet_count_after:  # Packet was published
-			print("Player " + str(zenoh_peer.get_unique_id()) + " published " + message + " (Zenoh auto-relays to all subscribers)")
-			print("📋 MERKLE STATE HASH: " + current_hash + " (state divergence tracking)")
-			if label:
-				label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
-			return
-
-		wait_attempts += 1
-		print("Zenoh publisher not ready, retrying... (" + str(wait_attempts) + "/" + str(max_attempts) + ")")
-		if label:
-			label.text = "Initializing network... " + str(countdown_number) + " (attempt " + str(wait_attempts) + ")"
-
-	# Timeout - send anyway and continue
-	print("Publisher timeout - sending message anyway")
 	if label:
 		label.text = "Sent: " + str(countdown_number) + " (waiting for ack)"
 
-	if label:
-		label.text = "Force sent: " + str(countdown_number) + " (waiting for ack)"
+	# If send failed, the Rust side will handle queuing and eventual retry through state machine
+	# No GDscript polling - pure event-driven architecture
 
 func _on_countdown_tick():
 	# Automatic countdown disabled - only send when ack received
