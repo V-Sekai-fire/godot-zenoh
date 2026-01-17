@@ -20,8 +20,9 @@ pub struct ZenohMultiplayerPeer {
     // Real Zenoh networking session
     zenoh_session: Option<Arc<Mutex<ZenohSession>>>,
 
-    // Connection State Machine
+    #[allow(dead_code)]
     connection_state: ConnectionState,
+    #[allow(dead_code)]
     state_machine: ZenohConnectionStateMachine,
 
     // Peer management
@@ -38,10 +39,14 @@ pub struct ZenohMultiplayerPeer {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 enum ConnectionState {
     Disconnected,
+    #[allow(dead_code)]
     Connecting,
+    #[allow(dead_code)]
     Connected,
+    #[allow(dead_code)]
     Failed,
 }
 
@@ -51,6 +56,7 @@ impl Default for ConnectionState {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 struct ZenohConnectionStateMachine {
     // Track connection attempts and retries
