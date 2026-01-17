@@ -34,7 +34,7 @@ mod integration_tests {
                     // Subscribe to all channel topics
                     let subscriber = session2.declare_subscriber("test_game/channel/*").await.expect("Failed to subscribe");
 
-                    let receiver = subscriber.recv().await.expect("Failed to get receiver");
+                    let receiver = subscriber.recv();
 
                     // Listen for messages for a short time
                     let mut count = 0;
@@ -141,3 +141,4 @@ mod unit_tests {
         println!("✓ Mock networking tests ready");
         println!("  (Test packet routing and topic generation logic)");
     }
+}

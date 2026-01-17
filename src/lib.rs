@@ -1,8 +1,8 @@
 // GDExtension entry point
 use godot::init::gdextension;
 
-mod networking;
-mod peer;
+pub mod networking;
+pub mod peer;
 // mod extension;  // Not needed for current implementation
 
 pub use peer::*;
