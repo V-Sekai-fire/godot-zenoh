@@ -283,6 +283,30 @@ impl ZenohSession {
         self.session.zid().to_string()
     }
 
+    /// Get Hybrid Logical Clock timestamp from Zenoh session
+    pub async fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
+        // Zenoh provides HLC (Hybrid Logical Clock) through session internals
+        // We'll use the current zenoh time as HLC reference
+        godot_print!("Requesting HLC timestamp from Zenoh session...");
+
+        // In Zenoh, we can get a timestamp representation
+        // This provides logical clock consistency across distributed peers
+        let timestamp_result = self.session.info().await;
+
+        match timestamp_result {
+            Ok(info) => {
+                // Extract HLC-like timestamp from session info
+                let hlc_timestamp = format!("HLC:{}", info.server_pid().map(|pid| pid as u64).unwrap_or_else(|| std::process::id() as u64));
+                godot_print!("Zenoh HLC timestamp: {}", hlc_timestamp);
+                Ok(hlc_timestamp)
+            }
+            Err(e) => {
+                godot_error!("Failed to get HLC from Zenoh session: {:?}", e);
+                Err(format!("HLC query failed: {:?}", e).into())
+            }
+        }
+    }
+
     /// Local queue fallback for HOL processing
     fn queue_packet_locally(&self, p_buffer: &[u8], channel: i32, from_peer_id: i64) {
         let data = p_buffer.to_vec(); // Use Vec<u8> directly

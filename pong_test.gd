@@ -135,6 +135,12 @@ func setup_ui():
 	button.connect("pressed", Callable(self, "_on_send_pressed"))
 	vbox.add_child(button)
 
+	# HLC Timestamp Request Button
+	var hlc_button = Button.new()
+	hlc_button.text = "Request HLC Timestamp"
+	hlc_button.connect("pressed", Callable(self, "_on_hlc_request_pressed"))
+	vbox.add_child(hlc_button)
+
 func _on_host_pressed():
 	print("Starting as host...")
 	is_host = true
@@ -489,8 +495,8 @@ func send_election_heartbeat():
 	if my_id != -1:
 		election_id = my_id
 	else:
-		# Use process ID and start time as deterministic election ID
-		election_id = OS.get_process_id() + OS.get_ticks_msec()
+		# Use process ID and timestamp as deterministic election ID
+		election_id = OS.get_process_id() + int(Time.get_unix_time_from_system() * 1000)
 
 	var heartbeat_msg = "ELECT:" + str(election_id) + ":" + str(zenoh_peer.get_zid())
 	var data = PackedByteArray()
@@ -635,6 +641,14 @@ func record_response_message(message: String, to_id: int):
 		"time": Time.get_unix_time_from_system()
 	}
 	response_messages_log.append(record)
+
+func _on_hlc_request_pressed():
+	print("🎯 Requesting HLC timestamp from Zenoh session...")
+	var result = zenoh_peer.request_hlc_timestamp()
+	if result == 0:
+		print("✅ HLC timestamp request sent to worker thread")
+	else:
+		print("❌ Failed to send HLC timestamp request")
 
 func _notification(what):
 	if what == NOTIFICATION_EXIT_TREE:

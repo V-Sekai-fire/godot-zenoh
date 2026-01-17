@@ -18,6 +18,7 @@ enum ZenohCommand {
     CreateServer { port: i32 },
     CreateClient { address: String, port: i32 },
     SendPacket { data: Vec<u8>, channel: i32 },
+    GetHLCTimestamp,
 }
 
 enum ZenohStateUpdate {
@@ -117,6 +118,21 @@ impl ZenohActor {
                     // Send result is not critical - silent failure for now
                 }
                 None // No event for successful send
+            }
+            ZenohCommand::GetHLCTimestamp => {
+                if let Some(sess) = &mut self.session {
+                    match sess.get_hlc_timestamp().await {
+                        Ok(hlc_ts) => {
+                            // Store HLC in session for retrieval
+                            // For now, we'll need to add a way to retrieve this from Godot
+                            godot_print!("HLC timestamp retrieved: {}", hlc_ts);
+                        }
+                        Err(e) => {
+                            godot_error!("Failed to get HLC timestamp: {:?}", e);
+                        }
+                    }
+                }
+                None
             }
         }
     }
@@ -697,5 +713,23 @@ impl ZenohMultiplayerPeer {
         dict.set("special", "");
         dict.set("elapsed", 0);  // Dummy value for compatibility
         dict
+    }
+
+    #[func]
+    fn request_hlc_timestamp(&mut self) -> Error {
+        godot_print!("📡 Requesting HLC timestamp from Zenoh session");
+
+        if let Some(bridge) = &self.async_bridge {
+            if let Err(e) = bridge.send_command(ZenohCommand::GetHLCTimestamp) {
+                godot_error!("Failed to send HLC timestamp request: {:?}", e);
+                return Error::FAILED;
+            }
+        } else {
+            godot_error!("No async bridge available for HLC request");
+            return Error::FAILED;
+        }
+
+        godot_print!("HLC timestamp request queued for Zenoh worker thread");
+        Error::OK
     }
 }
