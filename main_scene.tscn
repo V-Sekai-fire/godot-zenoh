@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://cm8yv2b7f8t4o"]
 
-[ext_resource type="Script" path="res://test_live_zenoh_networking.gd" id="1_m7rrk"]
+[ext_resource type="Script" path="res://pong_test.gd" id="1_m7rrk"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_m7rrk")
