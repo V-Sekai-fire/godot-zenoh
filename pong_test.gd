@@ -174,23 +174,23 @@ func _on_poll_timeout():
 		# Handle countdown message from other player (format: "COUNT:N:FROM_ID")
 		if data_string.begins_with("COUNT:"):
 			var parts = data_string.split(":")
-			if parts.size() >= 3:
-				var count = int(parts[1])
-				var from_player_id = int(parts[2])
+			var count = -1
+			var from_player_id = -1
 
+			if parts.size() >= 3:
+				count = int(parts[1])
+				from_player_id = int(parts[2])
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id))
 			else:
 				# Fallback for old format
 				var count_str = data_string.substr(6)
-				var count = int(count_str)
-				var from_player_id = get_other_player_id()
-
+				count = int(count_str)
+				from_player_id = get_other_player_id()
 				print("Player " + str(zenoh_peer.get_unique_id()) + " received COUNT:" + str(count) + " from Player " + str(from_player_id) + " (legacy format)")
 
 			# Acknowledge receipt by decrementing and sending next number (after 1 second delay)
-			if countdown_number > 0:
-				var current_count_value = count  # Store count value for label
-				label.text = "Received: " + str(current_count_value) + " - Preparing response..."
+			if countdown_number > 0 and count >= 0:
+				label.text = "Received: " + str(count) + " - Preparing response..."
 				print("Player " + str(zenoh_peer.get_unique_id()) + " acknowledging receipt - will respond in 1 second with countdown: " + str(countdown_number))
 
 				# Wait 1 second before responding (doesn't block the polling)
