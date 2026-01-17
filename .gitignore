@@ -1,0 +1,39 @@
+# Rust
+target/
+Cargo.lock
+
+# Godot
+.godot/
+*.import
+export_presets.cfg
+*.tmp
+*.swp
+*.swo
+
+# GDExtension builds
+addons/godot-zenoh/
+godot-bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Binaries directory - keep .gitkeep but ignore contents
+bin/*
+!bin/.gitkeep
+
+# Zenoh binaries (not part of the core HOL prevention implementation)
+zenoh.zip

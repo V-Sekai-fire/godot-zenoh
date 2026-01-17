@@ -1,0 +1,34 @@
+[package]
+name = "godot-zenoh"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Godot GDExtension bindings
+godot = {git = "https://github.com/godot-rust/gdext.git", features = ["register-docs", "api-4-4"]}
+
+# Zenoh networking for HOL blocking prevention
+zenoh = "0.11"
+zenoh-ext = "0.11"
+
+# For HOL blocking prevention demonstration (random packet generation)
+rand = "0.8"
+
+# Async runtime for Zenoh
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+# Optional: if we need custom build steps
+# godot-bindgen = "0.1"
+
+[dev-dependencies]
+# Testing framework
+rstest = "0.18"
+proptest = "1.0"
+
+[features]
+default = []
+gdnative = []  # Disable gdnative for tests

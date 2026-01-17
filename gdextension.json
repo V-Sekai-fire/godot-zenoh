@@ -1,0 +1,43 @@
+{
+  "name": "godot_zenoh",
+  "description": "Zenoh networking GDExtension for Godot - enables pub/sub communication with Zenoh",
+  "version": "0.1.0",
+  "gdextension.json version": "1.0",
+  "dependencies": [],
+
+  "ios": {
+    "library": "",
+    "symbols": "",
+    "dependencies": []
+  },
+
+  "macos": {
+    "library": "res://addons/godot-zenoh/libgodot_zenoh.dylib",
+    "symbols": "res://addons/godot-zenoh/libgodot_zenoh.dylib.dSYM",
+    "dependencies": []
+  },
+
+  "linux": {
+    "library": "res://addons/godot-zenoh/libgodot_zenoh.so",
+    "symbols": "res://addons/godot-zenoh/libgodot_zenoh.so.debug",
+    "dependencies": []
+  },
+
+  "windows": {
+    "library": "res://addons/godot-zenoh/libgodot_zenoh.dll",
+    "symbols": "res://addons/godot-zenoh/libgodot_zenoh.dll.pdb",
+    "dependencies": []
+  },
+
+  "android": {
+    "library": "",
+    "symbols": "",
+    "dependencies": []
+  },
+
+  "web": {
+    "library": "",
+    "symbols": "",
+    "dependencies": []
+  }
+}
