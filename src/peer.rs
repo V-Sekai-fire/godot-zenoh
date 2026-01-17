@@ -9,7 +9,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::networking::{Packet, ZenohSession};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 // ZBuf moved to zenoh::bytes in 1.7.2
 
 #[derive(GodotClass)]
@@ -320,7 +320,10 @@ impl ZenohMultiplayerPeer {
     #[func]
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
         godot_print!("Creating Zenoh client on {}:{}", address, port);
-        let runtime = Runtime::new().unwrap();
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let packet_queues = Arc::clone(&self.packet_queues);
 
         let session_result = runtime.block_on(async {
@@ -368,7 +371,10 @@ impl ZenohMultiplayerPeer {
     #[func]
     fn create_server(&mut self, port: i32, _max_clients: i32) -> Error {
         godot_print!("Creating Zenoh server on port {}", port);
-        let runtime = Runtime::new().unwrap();
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let packet_queues = Arc::clone(&self.packet_queues);
 
         let session_result = runtime.block_on(async {
