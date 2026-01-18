@@ -1,0 +1,17 @@
+[configuration]
+
+entry_symbol = "godot_zenoh_gdextension_entry"
+compatibility_minimum = "4.4"
+reloadable = true
+
+[libraries]
+
+linux.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.so"
+macos.universal = "res://addons/godot-zenoh/libgodot_zenoh.dylib"
+windows.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.dll"
+
+[dependencies]
+
+linux.x86_64 = []
+macos.universal = []
+windows.x86_64 = []

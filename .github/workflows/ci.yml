@@ -182,9 +182,9 @@ jobs:
       - name: Install Godot (Linux)
         if: runner.os == 'Linux'
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.2.1-stable/Godot_v4.2.1-stable_linux.x86_64.zip
-          unzip -q Godot_v4.2.1-stable_linux.x86_64.zip
-          sudo mv Godot_v4.2.1-stable_linux.x86_64/Godot /usr/local/bin/godot
+          wget -q https://github.com/godotengine/godot/releases/download/4.4-stable/Godot_v4.4-stable_linux.x86_64.zip
+          unzip -q Godot_v4.4-stable_linux.x86_64.zip
+          sudo mv Godot_v4.4-stable_linux.x86_64/Godot /usr/local/bin/godot
           sudo chmod +x /usr/local/bin/godot
 
       - name: Install Godot (macOS)

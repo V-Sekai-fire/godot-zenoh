@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="$HOME/.cargo/bin:$PWD:$PATH"
+
 echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD"
 
 mkdir -p test_logs
