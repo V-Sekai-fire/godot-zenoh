@@ -177,7 +177,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build extension
-        run: ./build.sh
+        run: ./misc/build.sh
 
       - name: Install Godot
         run: |
