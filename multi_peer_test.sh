@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# set -e
 
 export PATH="$HOME/.cargo/bin:$PWD:$PATH"
 
@@ -37,6 +37,8 @@ P3_SENT=$(grep -c "SENT:" test_logs/peer3.log)
 
 TOTAL_CONN=$((P1_CONN + P2_CONN + P3_CONN))
 TOTAL_SENT=$((P1_SENT + P2_SENT + P3_SENT))
+
+echo "Debug: P1_CONN=$P1_CONN P2_CONN=$P2_CONN P3_CONN=$P3_CONN TOTAL_CONN=$TOTAL_CONN"
 
 echo ""
 echo "📊 MULTI-PEER TEST RESULTS:"
