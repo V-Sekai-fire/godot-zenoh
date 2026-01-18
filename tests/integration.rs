@@ -41,4 +41,49 @@ mod networking_state_machine_tests {
 
         println!("Channel priority logic works");
     }
+
+    #[test]
+    fn test_no_emojis_in_code() {
+        // Test that no emojis are present in source code files
+        // This is important for compatibility with old Windows console terminals
+
+        let source_files = vec![
+            "src/lib.rs",
+            "src/networking.rs",
+            "src/peer.rs",
+            "tests/integration.rs",
+            "tests/peer_tests.rs",
+            "godot_zenoh/core/connection_genserver.gd",
+            "godot_zenoh/core/election_genserver.gd",
+            "godot_zenoh/core/game_genserver.gd",
+            "godot_zenoh/core/pong_test.gd",
+        ];
+
+        for file in source_files {
+            let content =
+                std::fs::read_to_string(file).unwrap_or_else(|_| panic!("Failed to read {}", file));
+            for ch in content.chars() {
+                // Check for common emoji ranges
+                if (ch >= '\u{1F600}' && ch <= '\u{1F64F}') || // Emoticons
+                   (ch >= '\u{1F300}' && ch <= '\u{1F5FF}') || // Misc Symbols and Pictographs
+                   (ch >= '\u{1F680}' && ch <= '\u{1F6FF}') || // Transport and Map
+                   (ch >= '\u{1F1E0}' && ch <= '\u{1F1FF}') || // Regional Indicator Symbols
+                   (ch >= '\u{2600}' && ch <= '\u{26FF}') ||   // Misc symbols
+                   (ch >= '\u{2700}' && ch <= '\u{27BF}')
+                {
+                    // Dingbats
+                    panic!(
+                        "Emoji '{}' found in {} at position around '{}'",
+                        ch,
+                        file,
+                        content
+                            .chars()
+                            .take_while(|&c| c != ch)
+                            .collect::<String>()
+                            .len()
+                    );
+                }
+            }
+        }
+    }
 }
