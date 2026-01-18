@@ -356,7 +356,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             }
         }
 
-        // Request timestamp update
         if let Some(bridge) = &self.async_bridge {
             let _ = bridge.send_command(ZenohCommand::GetTimestamp);
         }

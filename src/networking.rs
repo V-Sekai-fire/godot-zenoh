@@ -9,19 +9,15 @@ use zenoh::time::Timestamp;
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
-    pub data: Vec<u8>,        // Using Vec<u8> - will optimize to ZBuf when api known
-    pub timestamp: Timestamp, // Zenoh timestamp for distributed coordination
+    pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
+    pub timestamp: Timestamp,
 }
 
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
 pub struct ZenohSession {
-    /// Zenoh networking session
     session: Arc<zenoh::Session>,
-    /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
-    /// Game identifier
     game_id: String,
-    /// Unique peer identifier
     peer_id: i64,
 }
 
@@ -32,7 +28,6 @@ impl ZenohSession {
         port: i32,
         game_id: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Configure session to connect to the server router
         let connect_endpoint = format!("tcp/{}:{}", address, port);
         std::env::set_var("ZENOH_CONNECT", connect_endpoint);
 
@@ -72,11 +67,9 @@ impl ZenohSession {
         game_id: String,
         connect_addr: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Server becomes authoritative router by listening on the specified port
         let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
         std::env::set_var("ZENOH_LISTEN", listen_endpoint);
 
-        // If connect address provided, connect to another router
         if let Some(addr) = connect_addr {
             std::env::set_var("ZENOH_CONNECT", addr);
         }
@@ -150,17 +143,14 @@ impl ZenohSession {
         Ok(())
     }
 
-    /// Get the peer ID for this session
     pub fn get_peer_id(&self) -> i64 {
         self.peer_id
     }
 
-    /// Get the zenoh session ZID
     pub fn get_zid(&self) -> String {
         self.session.zid().to_string()
     }
 
-    /// Get Zenoh timestamp
     pub fn get_timestamp(&self) -> Timestamp {
         self.session.new_timestamp()
     }
