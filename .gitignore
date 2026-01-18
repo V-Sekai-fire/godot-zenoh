@@ -19,6 +19,11 @@ test_logs/
 Godot_v*.zip
 godot
 
+# Zenoh binaries
+zenohd
+libzenoh_plugin_*.so
+zenoh-*.zip
+
 # OS
 .DS_Store
 Thumbs.db

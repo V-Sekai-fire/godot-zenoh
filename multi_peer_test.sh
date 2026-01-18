@@ -7,20 +7,6 @@ echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD"
 
 mkdir -p test_logs
 
-# Start Zenoh router
-echo "📡 Launching Zenoh network router..."
-zenohd --listen tcp/127.0.0.1:7447 > test_logs/zenohd.log 2>&1 &
-ZENOH_PID=$!
-sleep 3
-
-if ! ps -p $ZENOH_PID > /dev/null; then
-    echo "❌ Zenoh router failed to start"
-    cat test_logs/zenohd.log
-    exit 1
-fi
-
-echo "✅ Zenoh router coordinating network on port 7447"
-
 # Launch 3 Godot peers simultaneously
 echo "🎮 Starting 3 Godot peers..."
 
@@ -36,8 +22,8 @@ timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer
 P3_PID=$!
 sleep 1
 
-echo "⏳ Enabling peer-to-peer communication for 12 seconds..."
-sleep 12
+echo "⏳ Enabling peer-to-peer communication for 30 seconds..."
+sleep 30
 
 # Cleanup
 echo "🧹 Cleaning up processes..."
