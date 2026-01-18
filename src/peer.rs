@@ -25,13 +25,11 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
-    GetTimestamp,
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i64 },
     ConnectionFailed { error: String },
-    Timestamp { timestamp: i64 },
 }
 
 struct ZenohActor {
@@ -109,16 +107,6 @@ impl ZenohActor {
                         .await;
                 }
                 None
-            }
-            ZenohCommand::GetTimestamp => {
-                if let Some(sess) = &self.session {
-                    let ts = sess.get_timestamp();
-                    Some(ZenohStateUpdate::Timestamp {
-                        timestamp: ts.get_time().0 as i64,
-                    })
-                } else {
-                    None
-                }
             }
         }
     }
@@ -240,7 +228,6 @@ pub struct ZenohMultiplayerPeer {
     current_packet_peer: i32,
 
     zid: GodotString,
-    current_timestamp: i64,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -258,7 +245,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
-            current_timestamp: 0,
             base: _base,
         }
     }
@@ -345,9 +331,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         godot_error!("CONNECTION FAILED: {}", error);
 
                         self.base_mut().emit_signal("connection_failed", &[]);
-                    }
-                    ZenohStateUpdate::Timestamp { timestamp } => {
-                        self.current_timestamp = timestamp;
                     }
                 }
             }
