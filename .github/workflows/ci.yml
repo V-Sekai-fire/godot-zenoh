@@ -266,13 +266,13 @@ jobs:
           echo "📊 MULTI-PEER TEST RESULTS:"
           echo "==========================="
           echo "Peers Connected: $TOTAL_CONN (target: ≥2)"
-          echo "Messages Sent: $TOTAL_SENT (target: ≥2)"
+          echo "Messages Sent: $TOTAL_SENT (target: ≥200)"  # ~10 msg/sec × 20 sec minimum
           echo ""
           for i in $(seq 1 $NUM_PEERS); do
               eval "echo \"Peer $i: \$P${i}_CONN connections, \$P${i}_SENT sent\""
           done
 
-          if [ $TOTAL_CONN -ge 2 ] && [ $TOTAL_SENT -ge 2 ]; then
+          if [ $TOTAL_CONN -ge 2 ] && [ $TOTAL_SENT -ge 200 ]; then
               echo ""
               echo "✅ MULTI-PEER TEST PASSED!"
               echo "✅ Multiple Godot peers successfully communicate via Zenoh router in CI/CD"

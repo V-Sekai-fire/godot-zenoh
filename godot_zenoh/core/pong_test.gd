@@ -15,7 +15,7 @@ func _ready():
 	_connect_to_network()
 
 	timer = Timer.new()
-	timer.wait_time = 3.0
+	timer.wait_time = 0.1  # CS:GO-like rate: ~10 messages/second
 	timer.one_shot = false
 	timer.connect("timeout", Callable(self, "_send_test_message"))
 	add_child(timer)
