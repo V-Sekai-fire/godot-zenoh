@@ -7,7 +7,10 @@
 
 export PATH="$HOME/.cargo/bin:$PWD:$PATH"
 
-echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD"
+# Parameterize number of peers (default: 2)
+NUM_PEERS=${NUM_PEERS:-2}
+
+echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD (Peers: $NUM_PEERS)"
 
 mkdir -p test_logs
 
@@ -25,15 +28,14 @@ fi
 
 echo "✅ Zenoh router coordinating network on port 7447"
 
-echo "🎮 Starting 2 Godot peers..."
+echo "🎮 Starting $NUM_PEERS Godot peers..."
 
-timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer1.log 2>&1 &
-P1_PID=$!
-sleep 1
-
-timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer2.log 2>&1 &
-P2_PID=$!
-sleep 1
+PEER_PIDS=()
+for i in $(seq 1 $NUM_PEERS); do
+    timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer$i.log 2>&1 &
+    PEER_PIDS[$i]=$!
+    sleep 1
+done
 
 echo "⏳ Enabling peer-to-peer communication for 30 seconds..."
 sleep 30
@@ -43,11 +45,17 @@ pkill -9 -f zenohd || true
 pkill -9 -f godot || true
 sleep 1
 
-P1_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer1.log)
-P2_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer2.log)
-P3_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer3.log)
-P1_SENT=$(grep -c "SENT:" test_logs/peer1.log)
-P2_SENT=$(grep -c "SENT:" test_logs/peer2.log)
+# Calculate totals
+TOTAL_CONN=0
+TOTAL_SENT=0
+for i in $(seq 1 $NUM_PEERS); do
+    CONN_VAR="P${i}_CONN"
+    SENT_VAR="P${i}_SENT"
+    eval "$CONN_VAR=\$(grep -c \"CLIENT CONNECTED\|connected to network\" test_logs/peer$i.log)"
+    eval "$SENT_VAR=\$(grep -c \"SENT:\" test_logs/peer$i.log)"
+    eval "TOTAL_CONN=\$((TOTAL_CONN + $CONN_VAR))"
+    eval "TOTAL_SENT=\$((TOTAL_SENT + $SENT_VAR))"
+done
 
 TOTAL_CONN=$((P1_CONN + P2_CONN))
 TOTAL_SENT=$((P1_SENT + P2_SENT))
@@ -60,8 +68,9 @@ echo "==========================="
 echo "Peers Connected: $TOTAL_CONN (target: ≥1)"
 echo "Messages Sent: $TOTAL_SENT (target: ≥1)"
 echo ""
-echo "Peer 1: $P1_CONN connections, $P1_SENT sent"
-echo "Peer 2: $P2_CONN connections, $P2_SENT sent"
+for i in $(seq 1 $NUM_PEERS); do
+    eval "echo \"Peer $i: \$P${i}_CONN connections, \$P${i}_SENT sent\""
+done
 
 if [ $TOTAL_CONN -ge 1 ] && [ $TOTAL_SENT -ge 1 ]; then
     echo ""
@@ -75,7 +84,8 @@ else
     echo "❌ Insufficient peer communication in automated environment"
     echo ""
     echo "🔍 Debug logs:"
-    echo "Peer 1:"; grep -E "(ERROR|FAILED|SERVER|CLIENT|SENT)" test_logs/peer1.log | head -3
-    echo "Peer 2:"; grep -E "(ERROR|FAILED|SERVER|CLIENT|SENT)" test_logs/peer2.log | head -3
+    for i in $(seq 1 $NUM_PEERS); do
+        echo "Peer $i:"; grep -E "(ERROR|FAILED|SERVER|CLIENT|SENT)" test_logs/peer$i.log | head -3
+    done
     exit 1
 fi
