@@ -62,10 +62,7 @@ for i in $(seq 1 $NUM_PEERS); do
     eval "TOTAL_SENT=\$((TOTAL_SENT + $SENT_VAR))"
 done
 
-TOTAL_CONN=$((P1_CONN + P2_CONN))
-TOTAL_SENT=$((P1_SENT + P2_SENT))
-
-echo "Debug: P1_CONN=$P1_CONN P2_CONN=$P2_CONN TOTAL_CONN=$TOTAL_CONN"
+echo "Debug: TOTAL_CONN=$TOTAL_CONN TOTAL_SENT=$TOTAL_SENT"
 
 echo ""
 echo "📊 MULTI-PEER TEST RESULTS:"
