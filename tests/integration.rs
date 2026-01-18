@@ -53,9 +53,6 @@ mod networking_state_machine_tests {
             "src/peer.rs",
             "tests/integration.rs",
             "tests/peer_tests.rs",
-            "godot_zenoh/core/connection_genserver.gd",
-            "godot_zenoh/core/election_genserver.gd",
-            "godot_zenoh/core/game_genserver.gd",
             "godot_zenoh/core/pong_test.gd",
         ];
 

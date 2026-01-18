@@ -7,9 +7,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-godot = {git = "https://github.com/godot-rust/gdext.git", features = ["register-docs", "api-4-5", "experimental-threads"]}
+godot = {git = "https://github.com/godot-rust/gdext.git", features = ["api-4-5", "experimental-threads"]}
 
 zenoh = "1.7.2"
+uhlc = "0.8.2"
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
@@ -19,4 +20,3 @@ proptest = "1.0"
 
 [features]
 default = []
-gdnative = []  # Disable gdnative for tests

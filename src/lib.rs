@@ -4,9 +4,6 @@ use godot::init::gdextension;
 pub mod networking;
 pub mod peer;
 
-// mod extension;  // Not needed for current implementation
-// pub use extension::*;  // Not needed for current implementation
-
 // Make the ZenohMultiplayerPeer class visible for gdextension registration
 pub use peer::ZenohMultiplayerPeer;
 

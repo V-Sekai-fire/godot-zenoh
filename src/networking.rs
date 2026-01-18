@@ -4,15 +4,15 @@ use godot::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-// ZBuf import will be added when zenoh 1.7.2 module structure is known
-// For now using Vec<u8> - will replace with native ZBuf when api known
 use zenoh::pubsub::Publisher;
+use zenoh::time::Timestamp;
+use uhlc::{NTP64, ID};
 
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>,  // Using Vec<u8> - will optimize to ZBuf when api known
-    pub from_peer: i64, // Sender peer ID for self-message filtering
+    pub timestamp: Timestamp, // Zenoh timestamp for distributed coordination
 }
 
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
@@ -116,9 +116,11 @@ impl ZenohSession {
                 );
                 return Error::FAILED;
             }
+        } else {
+            godot_error!("No publisher available for channel {}", channel);
+            return Error::FAILED;
         }
 
-        self.queue_packet_locally(p_buffer, channel, self.peer_id);
         Error::OK
     }
 
@@ -150,26 +152,14 @@ impl ZenohSession {
         self.session.zid().to_string()
     }
 
-    /// Get HLC timestamp from Zenoh session
-    pub fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
-        // Extract HLC-like timestamp using system time and process ID for distributed coordination
-        let hlc_timestamp = format!(
-            "HLC:PID{}:TIME{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        Ok(hlc_timestamp)
-    }
-
-    /// Local queue fallback for message processing
-    fn queue_packet_locally(&self, p_buffer: &[u8], _channel: i32, from_peer_id: i64) {
-        let data = p_buffer.to_vec(); // Use Vec<u8> directly
-        let _packet = Packet {
-            data,
-            from_peer: from_peer_id,
-        };
+    /// Get Zenoh timestamp
+    pub fn get_timestamp(&self) -> Timestamp {
+        // Create timestamp with current time and a default ID
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        let ntp_time = NTP64(now);
+        Timestamp::new(ntp_time, ID::rand()) // Use random ID
     }
 }

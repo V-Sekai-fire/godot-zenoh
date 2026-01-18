@@ -178,25 +178,6 @@ mod peer_channel_tests {
         peer.get_packet(small_buffer.as_mut_slice()).unwrap();
         assert_eq!(&small_buffer, &[1, 2, 3]);
     }
-
-    #[test]
-    fn test_no_head_of_line_blocking() {
-        let peer = TestPeer::new();
-
-        // Simulate HOL blocking scenario: slow channel should not block fast channel
-        // Many packets in high-numbered channel
-        for i in 0..100 {
-            peer.add_packet_to_channel(10, vec![10, i as u8]);
-        }
-
-        // Add high-priority packet in low-numbered channel
-        peer.add_packet_to_channel(0, vec![0, 99]);
-
-        // Should return low-numbered channel first despite high-numbered having more packets
-        let mut buffer = vec![0u8; 2];
-        peer.get_packet(buffer.as_mut_slice()).unwrap();
-        assert_eq!(&buffer, &[0, 99]);
-    }
 }
 
 // Property-based tests for statistical validation

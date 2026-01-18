@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::networking::{Packet, ZenohSession};
+use zenoh::time::Timestamp;
+use uhlc::{NTP64, ID};
 
 // Async command types for Zenoh operations
 #[derive(Debug)]
@@ -27,7 +29,6 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
-    GetHLCTimestamp,
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
@@ -120,20 +121,6 @@ impl ZenohActor {
                     // Send result is not critical - silent failure for now
                 }
                 None // No event for successful send
-            }
-            ZenohCommand::GetHLCTimestamp => {
-                if let Some(sess) = &self.session {
-                    match sess.get_hlc_timestamp() {
-                        Ok(hlc_ts) => {
-                            // Print HLC timestamp (async bridge doesn't need to return values to Godot)
-                            godot_print!("Zenoh HLC timestamp: {}", hlc_ts);
-                        }
-                        Err(e) => {
-                            godot_error!("Failed to get HLC timestamp: {:?}", e);
-                        }
-                    }
-                }
-                None
             }
         }
     }
@@ -467,16 +454,16 @@ impl ZenohMultiplayerPeer {
         for priority in 0..=255 {
             if let Some(queue) = queues.get_mut(&priority) {
                 if let Some(packet) = queue.pop_front() {
-                    // Store sender peer ID for get_packet_peer()
-                    self.current_packet_peer = packet.from_peer as i32;
+                    // Store sender peer ID for get_packet_peer() - TODO: parse from HLC
+                    self.current_packet_peer = 0; // Placeholder until HLC parsing implemented
                     // Update current channel so get_packet_channel() returns the correct channel
                     self.current_channel = priority;
 
                     godot_print!(
-                        "DEBUG: Retrieved packet from channel {} (size: {}, from peer: {})",
+                        "DEBUG: Retrieved packet from channel {} (size: {}, timestamp: {:?})",
                         priority,
                         packet.data.len(),
-                        packet.from_peer
+                        packet.timestamp
                     );
                     // Convert Vec<u8> directly to PackedByteArray
                     return PackedByteArray::from_iter(packet.data.iter().copied());
@@ -512,16 +499,9 @@ impl ZenohMultiplayerPeer {
             return Error::OK;
         }
 
-        // Fallback: local queuing when no networking session available
-        let mut queues = self.packet_queues.lock().unwrap();
-        queues
-            .entry(channel)
-            .or_insert_with(VecDeque::new)
-            .push_back(Packet {
-                data: p_buffer.to_vec(),
-                from_peer: 0, // Unknown sender for local fallback
-            });
-        Error::OK
+        // No networking session available - cannot send packet
+        godot_error!("No networking session available for packet transmission");
+        Error::FAILED
     }
 
     #[func]
@@ -541,7 +521,7 @@ impl ZenohMultiplayerPeer {
                     let data = vec![channel as u8, i as u8]; // Use Vec<u8> directly
                     let packet = Packet {
                         data,
-                        from_peer: 999, // Demo packets from fake peer
+                        timestamp: Timestamp::new(NTP64(0), ID::rand()), // Demo packet
                     };
                     queues
                         .entry(channel)
@@ -555,7 +535,7 @@ impl ZenohMultiplayerPeer {
             let critical_data = vec![0u8, 255u8]; // Use Vec<u8> directly - Channel 0 marker, critical flag
             let critical_packet = Packet {
                 data: critical_data,
-                from_peer: 999, // Demo packet from fake peer
+                timestamp: Timestamp::new(NTP64(0), ID::rand()), // Critical demo packet
             };
             queues
                 .entry(0)
@@ -717,23 +697,5 @@ impl ZenohMultiplayerPeer {
         dict.set("special", "");
         dict.set("elapsed", 0); // Dummy value for compatibility
         dict
-    }
-
-    #[func]
-    fn request_hlc_timestamp(&mut self) -> Error {
-        godot_print!("Requesting HLC timestamp from Zenoh session");
-
-        if let Some(bridge) = &self.async_bridge {
-            if let Err(e) = bridge.send_command(ZenohCommand::GetHLCTimestamp) {
-                godot_error!("Failed to send HLC timestamp request: {:?}", e);
-                return Error::FAILED;
-            }
-        } else {
-            godot_error!("No async bridge available for HLC request");
-            return Error::FAILED;
-        }
-
-        godot_print!("HLC timestamp request queued for Zenoh worker thread");
-        Error::OK
     }
 }

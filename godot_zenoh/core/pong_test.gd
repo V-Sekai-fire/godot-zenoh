@@ -1,13 +1,6 @@
 extends Node
 
-const CoordinatorStateMachine = preload("res://godot_zenoh/core/election_genserver.gd")
-const ConnectionStateMachine = preload("res://godot_zenoh/core/connection_genserver.gd")
-const NetworkingStateMachine = preload("res://godot_zenoh/core/game_genserver.gd")
-
 var zenoh_peer: ZenohMultiplayerPeer
-var coordinator: CoordinatorStateMachine
-var connection: ConnectionStateMachine
-var networking: NetworkingStateMachine
 var timer: Timer
 
 var label: Label
@@ -15,18 +8,6 @@ var peer_id: String
 var connected: bool = false
 
 func _ready():
-	coordinator = CoordinatorStateMachine.new()
-	connection = ConnectionStateMachine.new()
-	networking = NetworkingStateMachine.new()
-
-	var c_init = coordinator.init({"id": 1})
-	var conn_init = connection.init({})
-	var net_init = networking.init({})
-
-	if c_init[0] != "ok" or conn_init[0] != "ok" or net_init[0] != "ok":
-		if label: label.text = "Init failed"
-		return
-
 	setup_ui()
 	_connect_to_network()
 
