@@ -1,3 +1,6 @@
+// Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+// SPDX-License-Identifier: MIT
+
 use godot::classes::multiplayer_peer::{ConnectionStatus, TransferMode};
 use godot::classes::IMultiplayerPeerExtension;
 use godot::classes::MultiplayerPeerExtension;

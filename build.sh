@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+# SPDX-License-Identifier: MIT
+
 # Build script for Godot Zenoh GDExtension
 # This builds the Rust library for the target platform
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+// SPDX-License-Identifier: MIT
+
 use godot::global::Error;
 use godot::prelude::*;
 use std::collections::HashMap;

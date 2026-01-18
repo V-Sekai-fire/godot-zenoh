@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+# SPDX-License-Identifier: MIT
+
 # set -e
 
 export PATH="$HOME/.cargo/bin:$PWD:$PATH"

@@ -1,3 +1,6 @@
+// Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+// SPDX-License-Identifier: MIT
+
 // GDExtension entry point
 use godot::init::gdextension;
 
