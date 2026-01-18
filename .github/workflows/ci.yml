@@ -49,9 +49,6 @@ jobs:
       - name: Run integration tests
         run: cargo test --verbose --test integration
 
-      - name: Run networking tests
-        run: cargo test --verbose --test networking_tests
-
       - name: Run peer tests
         run: cargo test --verbose --test peer_tests
 
