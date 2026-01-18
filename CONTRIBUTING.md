@@ -4,11 +4,9 @@ Thank you for your interest in contributing to the Godot Zenoh Multiplayer Exten
 
 ## Project Overview
 
-This extension implements dual networking flows for Godot multiplayer: **fast "brutal flow" messaging** and **consensus-based Raft transactions**, both using Zenoh as the transport layer.
+This extension implements fast "brutal flow" messaging using Zenoh as the transport layer for Godot's multiplayer system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking prevention.
 
-### Architecture: Dual Networking Flows
-
-#### Flow 1: Standard "Brutal Flow" - Direct/Fast Path
+### Architecture: "Brutal Flow" - Direct/Fast Path
 **Purpose**: Real-time gaming communication
 - **Speed**: Priority on latency via direct Zenoh pub/sub messaging
 - **Reliability**: Best-effort delivery for performances
@@ -16,22 +14,12 @@ This extension implements dual networking flows for Godot multiplayer: **fast "b
 - **Implementation**: `ZenohMultiplayerPeer` with HOL blocking prevention
 - **Quality**: Low-latency (<10ms typical), high-throughput message passing
 
-#### Flow 2: "Transaction with Raft Flow" - Consensus Path
-**Purpose**: Critical state changes requiring distributed consensus
-- **Consistency**: Raft protocol guarantees via majority quorum voting
-- **Reliability**: ACID-like consistency with distributed log replication
-- **Use Cases**: Leader election, item transactions, match state, game rules
-- **Implementation**: `ZenohRaftConsensus` with async-raft library v0.6.1
-- **Quality**: High consistency, fault-tolerant, distributed consensus
-
 ### Technical Features
 
 - **Async networking** with Tokio runtime
 - **HOL blocking prevention** using 256 virtual channels
 - **Automatic synchronization** support
 - **Thread-safe actor pattern** for Godot integration
-- **Raft consensus protocol** implementation
-- **Real distributed consensus** using async-raft library
 - **Comprehensive debug logging** and performance monitoring
 
 ## Development Setup
@@ -65,44 +53,43 @@ godot-zenoh/
 ├── src/
 │   ├── lib.rs                   # Main extension initialization
 │   ├── peer.rs                  # ZenohMultiplayerPeer - Brutal flow implementation
-│   ├── networking.rs            # Zenoh session and packet routing
-│   └── raft_consensus.rs        # ZenohRaftConsensus - Raft flow implementation
+│   └── networking.rs            # Zenoh session and packet routing
 ├── tests/                       # Integration tests
+│   ├── integration.rs           # Full system integration tests
 │   ├── networking_tests.rs      # Zenoh networking tests
-│   ├── raft_consensus_tests.rs  # Raft consensus algorithm tests
-│   └── integration.rs           # Full system integration tests
-├── bin/                         # Zenoh router binary
-├── addons/godot-zenoh/          # Godot addon files
-├── demo_*.gd                    # Godot demo scripts
-├── test_*.py                    # Python test clients
-├── pong_test.gd                 # Dual flow demonstration scene
-└── *.tscn                       # Godot scenes for testing
+│   ├── peer_tests.rs            # Peer implementation tests
+│   └── peer_tests.proptest-regressions  # Property test regressions
+├── godot_zenoh/                 # Godot test project
+│   ├── core/
+│   │   ├── connection_genserver.gd
+│   │   ├── election_genserver.gd
+│   │   ├── game_genserver.gd
+│   │   └── pong_test.gd
+│   ├── scenes/
+│   │   ├── main_scene.tscn
+│   │   └── pong_test.tscn
+│   └── scenes.tscn
+├── build.sh                     # Build script
+├── Cargo.toml                   # Rust dependencies
+├── gdextension.json             # Godot extension configuration
+├── project.godot                # Godot project file
+└── CONTRIBUTING.md
 ```
 
 ## Networking Architecture
 
 ### Message Flow Routing
 
-The extension automatically routes messages based on requirements:
+Messages are sent through the brutal flow for low-latency communication:
 
 ```rust
 // Quick player movement - goes through brutal flow
 player.move_to(position)  // -> Zenoh pub/sub direct messaging
-
-// Critical transaction - requires consensus
-inventory.transfer(item)  // -> Raft consensus + log replication
-
-// Game state change - uses Raft for consistency
-game.change_phase(new_phase)  // -> Distributed consensus protocol
 ```
 
 ### Network Isolation
 
-Both flows run over Zenoh but use separate key expressions:
-- **Brutal Flow**: `game/{game_id}/brutal/{channel_id}` - Direct messaging
-- **Raft Flow**: `game/{game_id}/raft/{node_id}` - Consensus messaging
-
-This allows independent scaling of real-time vs consensus traffic.
+Messages use the brutal flow key expression: `game/{game_id}/brutal/{channel_id}` - Direct messaging
 
 ## Development Guidelines
 
