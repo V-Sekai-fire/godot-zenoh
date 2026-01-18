@@ -11,7 +11,7 @@ name = "server_test"
 path = "src/bin/server_test.rs"
 
 [dependencies]
-godot = {git = "https://github.com/godot-rust/gdext.git", features = ["api-4-5", "experimental-threads", "register-docs", "double-precision"]}
+godot = {git = "https://github.com/godot-rust/gdext.git", features = ["api-4-4", "experimental-threads", "register-docs", "double-precision"]}
 zenoh = "1.7.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # NEVER USE uhlc
