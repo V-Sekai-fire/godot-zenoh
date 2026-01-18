@@ -29,7 +29,7 @@ enum ZenohCommand {
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
-    ClientConnected { zid: String, peer_id: i32 },
+    ClientConnected { zid: String, peer_id: i64 },
     ConnectionFailed { error: String },
     Timestamp { timestamp: i64 },
 }
@@ -95,10 +95,7 @@ impl ZenohActor {
                             }
                         }
 
-                        Some(ZenohStateUpdate::ClientConnected {
-                            zid,
-                            peer_id: peer_id as i32,
-                        })
+                        Some(ZenohStateUpdate::ClientConnected { zid, peer_id })
                     }
                     Err(e) => Some(ZenohStateUpdate::ConnectionFailed {
                         error: e.to_string(),
@@ -331,7 +328,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                 match event {
                     ZenohStateUpdate::ClientConnected { zid, peer_id } => {
                         self.connection_status = 2;
-                        self.unique_id = peer_id;
+                        self.unique_id = peer_id as i32;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
 

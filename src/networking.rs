@@ -16,7 +16,7 @@ pub struct Packet {
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
 pub struct ZenohSession {
     session: Arc<zenoh::Session>,
-    publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
+    publishers: Arc<Mutex<HashMap<String, Arc<Publisher<'static>>>>>,
     game_id: String,
     peer_id: i64,
 }
@@ -49,7 +49,7 @@ impl ZenohSession {
 
         let peer_id = if zid.len() >= 8 {
             let last8 = &zid[zid.len() - 8..];
-            i64::from_str_radix(last8, 16).unwrap_or_else(|_| 2)
+            i64::from_str_radix(last8, 16).unwrap_or(2)
         } else {
             2
         };
@@ -101,10 +101,15 @@ impl ZenohSession {
 
     /// Send packet on specific topic-based channel (async)
     pub async fn send_packet(&self, p_buffer: &[u8], game_id: String, channel: i32) -> Error {
-        let _topic = format!("godot/game/{}/channel{:03}", game_id, channel);
+        let topic = format!("godot/game/{}/channel{:03}", game_id, channel);
 
         // Try to get existing publisher
-        if let Some(publisher) = self.publishers.lock().unwrap().get(&channel) {
+        let publisher = {
+            let publishers = self.publishers.lock().unwrap();
+            publishers.get(&topic).cloned()
+        };
+
+        if let Some(publisher) = publisher {
             // Add sender peer ID header (8 bytes: peer_id as i64)
             let mut packet_data = Vec::with_capacity(8 + p_buffer.len());
             packet_data.extend_from_slice(&self.peer_id.to_le_bytes());
@@ -135,9 +140,12 @@ impl ZenohSession {
             Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
 
         // Setup publisher if not exists
-        if !self.publishers.lock().unwrap().contains_key(&channel) {
+        if !self.publishers.lock().unwrap().contains_key(topic) {
             let publisher = self.session.declare_publisher(topic).await?;
-            self.publishers.lock().unwrap().insert(channel, publisher);
+            self.publishers
+                .lock()
+                .unwrap()
+                .insert(topic.to_string(), Arc::new(publisher));
         }
 
         Ok(())
