@@ -54,7 +54,7 @@ mod networking_state_machine_tests {
             "src/peer.rs",
             "tests/integration.rs",
             "tests/peer_tests.rs",
-            "godot_zenoh/core/pong_test.gd",
+            "sample/godot_zenoh/core/pong_test.gd",
         ];
 
         for file in source_files {
