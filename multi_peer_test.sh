@@ -68,13 +68,13 @@ echo ""
 echo "📊 MULTI-PEER TEST RESULTS:"
 echo "==========================="
 echo "Peers Connected: $TOTAL_CONN (target: ≥1)"
-echo "Messages Sent: $TOTAL_SENT (target: ≥100)"  # ~10 msg/sec × 10 sec minimum
+echo "Messages Sent: $TOTAL_SENT (target: ≥1000)"  # 64Hz × 30s × 0.8 efficiency
 echo ""
 for i in $(seq 1 $NUM_PEERS); do
     eval "echo \"Peer $i: \$P${i}_CONN connections, \$P${i}_SENT sent\""
 done
 
-if [ $TOTAL_CONN -ge 1 ] && [ $TOTAL_SENT -ge 100 ]; then
+if [ $TOTAL_CONN -ge 1 ] && [ $TOTAL_SENT -ge 1000 ]; then
     echo ""
     echo "✅ MULTI-PEER TEST PASSED!"
     echo "✅ Multiple Godot peers successfully communicate via Zenoh router in CI/CD"
