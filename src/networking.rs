@@ -153,12 +153,6 @@ impl ZenohSession {
 
     /// Get Zenoh timestamp
     pub fn get_timestamp(&self) -> Timestamp {
-        // Create timestamp with current time and a default ID
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-        let ntp_time = NTP64(now);
-        Timestamp::new(ntp_time, ID::rand()) // Use random ID
+        self.session.new_timestamp()
     }
 }

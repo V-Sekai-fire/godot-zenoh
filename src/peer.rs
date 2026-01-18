@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::networking::{Packet, ZenohSession};
-use zenoh::time::Timestamp;
+// use uhlc::ID; NEVER USE UHLC.
 
 // Async command types for Zenoh operations
 #[derive(Debug)]
@@ -501,65 +501,6 @@ impl ZenohMultiplayerPeer {
         // No networking session available - cannot send packet
         godot_error!("No networking session available for packet transmission");
         Error::FAILED
-    }
-
-    #[func]
-    fn demo_hol_blocking_prevention(&mut self) -> PackedByteArray {
-        // Get exclusive access to queues for modification scope
-        {
-            let mut queues = self.packet_queues.lock().unwrap();
-
-            // DEMONSTRATION: Flood high channels (200-220) with packets
-            // Then add one packet to channel 0 - it should be processed first
-            godot_print!("HOL BLOCKING PREVENTION DEMO:");
-            godot_print!("Flooding high channels with packets...");
-
-            // Add many packets to high-number channels (should be blocked)
-            for channel in 200..=220 {
-                for i in 0..5 {
-                    let data = vec![channel as u8, i as u8]; // Use Vec<u8> directly
-                    let packet = Packet {
-                        data,
-                        timestamp: Timestamp::new(NTP64(0), ID::rand()), // Demo packet
-                    };
-                    queues
-                        .entry(channel)
-                        .or_insert_with(VecDeque::new)
-                        .push_back(packet);
-                }
-            }
-
-            // Add ONE critical packet to channel 0 (should be processed first)
-            godot_print!("Adding critical packet to channel 0...");
-            let critical_data = vec![0u8, 255u8]; // Use Vec<u8> directly - Channel 0 marker, critical flag
-            let critical_packet = Packet {
-                data: critical_data,
-                timestamp: Timestamp::new(NTP64(0), ID::rand()), // Critical demo packet
-            };
-            queues
-                .entry(0)
-                .or_insert_with(VecDeque::new)
-                .push_front(critical_packet);
-        } // Release queues lock
-
-        // HOL PREVENTION: get_packet() should return channel 0 first!
-        let result = self.get_packet();
-        if result.len() >= 2 {
-            let channel_returned = result[0] as i32;
-            if channel_returned == 0 {
-                godot_print!("SUCCESS: Channel 0 critical packet processed FIRST!");
-                godot_print!("HOL blocking prevention working correctly");
-                godot_print!("High-channel packets properly blocked by low-channel priority");
-            } else {
-                godot_error!(
-                    "FAILURE: Channel {} returned instead of channel 0",
-                    channel_returned
-                );
-                godot_error!("HOL blocking prevention NOT working");
-            }
-        }
-
-        result
     }
 
     #[func]
