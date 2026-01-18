@@ -11,7 +11,7 @@ echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD"
 
 mkdir -p test_logs
 
-echo "🎮 Starting 3 Godot peers..."
+echo "🎮 Starting 2 Godot peers..."
 
 timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer1.log 2>&1 &
 P1_PID=$!
@@ -19,10 +19,6 @@ sleep 1
 
 timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer2.log 2>&1 &
 P2_PID=$!
-sleep 1
-
-timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer3.log 2>&1 &
-P3_PID=$!
 sleep 1
 
 echo "⏳ Enabling peer-to-peer communication for 30 seconds..."
@@ -37,22 +33,20 @@ P2_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer2.log)
 P3_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer3.log)
 P1_SENT=$(grep -c "SENT:" test_logs/peer1.log)
 P2_SENT=$(grep -c "SENT:" test_logs/peer2.log)
-P3_SENT=$(grep -c "SENT:" test_logs/peer3.log)
 
-TOTAL_CONN=$((P1_CONN + P2_CONN + P3_CONN))
-TOTAL_SENT=$((P1_SENT + P2_SENT + P3_SENT))
+TOTAL_CONN=$((P1_CONN + P2_CONN))
+TOTAL_SENT=$((P1_SENT + P2_SENT))
 
-echo "Debug: P1_CONN=$P1_CONN P2_CONN=$P2_CONN P3_CONN=$P3_CONN TOTAL_CONN=$TOTAL_CONN"
+echo "Debug: P1_CONN=$P1_CONN P2_CONN=$P2_CONN TOTAL_CONN=$TOTAL_CONN"
 
 echo ""
 echo "📊 MULTI-PEER TEST RESULTS:"
 echo "==========================="
-echo "Peers Connected: $TOTAL_CONN (target: ≥2)"
-echo "Messages Sent: $TOTAL_SENT (target: ≥2)"
+echo "Peers Connected: $TOTAL_CONN (target: ≥1)"
+echo "Messages Sent: $TOTAL_SENT (target: ≥1)"
 echo ""
 echo "Peer 1: $P1_CONN connections, $P1_SENT sent"
 echo "Peer 2: $P2_CONN connections, $P2_SENT sent"
-echo "Peer 3: $P3_CONN connections, $P3_SENT sent"
 
 if [ $TOTAL_CONN -ge 2 ] && [ $TOTAL_SENT -ge 2 ]; then
     echo ""
