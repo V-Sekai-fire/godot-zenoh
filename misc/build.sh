@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+# SPDX-License-Identifier: MIT
+
 # Build script for Godot Zenoh GDExtension
 # This builds the Rust library for the target platform
 
@@ -45,17 +48,17 @@ LIB_NAME="libgodot_zenoh.$LIB_EXT"
 TARGET_PATH="target/release/$LIB_NAME"
 
 if [ -f "$TARGET_PATH" ]; then
-    mkdir -p addons/godot-zenoh
-    cp "$TARGET_PATH" "addons/godot-zenoh/"
+    mkdir -p sample/addons/godot-zenoh
+    cp "$TARGET_PATH" "sample/addons/godot-zenoh/"
 
     # On macOS, code signing is required for libraries
     if [ "$LIB_EXT" = "dylib" ]; then
         echo "Code signing GDExtension library for macOS..."
-        codesign --force --sign - "addons/godot-zenoh/$LIB_NAME"
+        codesign --force --sign - "sample/addons/godot-zenoh/$LIB_NAME"
         echo "Library code signed."
     fi
 
-    echo "Built library copied to addons/godot-zenoh/$LIB_NAME"
+    echo "Built library copied to sample/addons/godot-zenoh/$LIB_NAME"
     echo "Ready to be used in Godot project!"
 else
     echo "Error: Built library not found at $TARGET_PATH"

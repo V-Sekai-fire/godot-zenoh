@@ -1,3 +1,6 @@
+// Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+// SPDX-License-Identifier: MIT
+
 #[derive(Debug)]
 struct TestPeer {
     current_channel: i32,

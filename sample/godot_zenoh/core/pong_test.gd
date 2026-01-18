@@ -1,3 +1,6 @@
+# Copyright (c) 2026-present K. S. Ernest (iFire) Lee
+# SPDX-License-Identifier: MIT
+
 extends Node
 
 var zenoh_peer: ZenohMultiplayerPeer
@@ -12,7 +15,7 @@ func _ready():
 	_connect_to_network()
 
 	timer = Timer.new()
-	timer.wait_time = 3.0
+	timer.wait_time = 0.015625  # 64Hz update rate (15.625ms intervals)
 	timer.one_shot = false
 	timer.connect("timeout", Callable(self, "_send_test_message"))
 	add_child(timer)
@@ -28,12 +31,12 @@ func _connect_to_network():
 	rng.randomize()
 	peer_id = "Peer_" + str(rng.randi_range(1000, 9999))
 
-	var server_result = zenoh_peer.create_server(port, 32)
-	if server_result == 0:
-		label.text = "OK Started as SERVER on port " + str(port) + "\nPeer: " + peer_id
+	var client_result = zenoh_peer.create_client("127.0.0.1", port)
+	if client_result == 0:
+		label.text = "OK Connected as CLIENT to port " + str(port) + "\nPeer: " + peer_id
 		connected = true
 	else:
-		label.text = "ERROR Server creation failed on port " + str(port)
+		label.text = "ERROR Client connection failed to port " + str(port)
 
 func _process(delta):
 	if zenoh_peer:
@@ -60,15 +63,6 @@ func _notification(what):
 		if timer: timer.stop()
 		if zenoh_peer: zenoh_peer.close()
 
-	label = Label.new()
-	label.text = "Connecting..."
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(label)
-
-	var desc = Label.new()
-	desc.text = "Auto-connects peers via Zenoh network.\nCI/CD compatible, silent operation."
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(desc)
 func setup_ui():
 	var window = Window.new()
 	add_child(window)
