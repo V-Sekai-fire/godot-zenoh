@@ -41,7 +41,7 @@ jobs:
         if: runner.os != 'Windows'
 
       - name: Build extension
-        run: ./build.sh
+        run: ./misc/build.sh
 
       - name: Run tests
         run: cargo test --verbose
