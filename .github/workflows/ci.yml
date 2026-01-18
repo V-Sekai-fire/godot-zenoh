@@ -29,6 +29,9 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
 
+      - name: Install zenohd
+        run: cargo install zenohd
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 

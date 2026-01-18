@@ -31,12 +31,12 @@ func _connect_to_network():
 	rng.randomize()
 	peer_id = "Peer_" + str(rng.randi_range(1000, 9999))
 
-	var server_result = zenoh_peer.create_server(port, 32)
-	if server_result == 0:
-		label.text = "OK Started as SERVER on port " + str(port) + "\nPeer: " + peer_id
+	var client_result = zenoh_peer.create_client("127.0.0.1", port)
+	if client_result == 0:
+		label.text = "OK Connected as CLIENT to port " + str(port) + "\nPeer: " + peer_id
 		connected = true
 	else:
-		label.text = "ERROR Server creation failed on port " + str(port)
+		label.text = "ERROR Client connection failed to port " + str(port)
 
 func _process(delta):
 	if zenoh_peer:

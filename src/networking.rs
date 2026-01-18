@@ -65,6 +65,12 @@ impl ZenohSession {
         })
     }
 
+    /// Create Zenoh networking server session (listens for client connections)
+    ///
+    /// # Arguments
+    /// * `port` - The port to listen on
+    /// * `game_id` - Identifier for network isolation
+    /// * `connect_addr` - Optional address to connect to (for hybrid mode)
     pub async fn create_server(
         port: i32,
         game_id: String,

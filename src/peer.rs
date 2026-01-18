@@ -214,6 +214,11 @@ impl Drop for ZenohAsyncBridge {
     }
 }
 
+/// A Zenoh-based multiplayer peer implementation for Godot.
+///
+/// This struct provides a custom multiplayer peer that uses the Zenoh protocol
+/// for distributed communication between game clients. It extends Godot's
+/// MultiplayerPeerExtension to integrate with the high-level multiplayer API.
 #[derive(GodotClass)]
 #[class(base=MultiplayerPeerExtension, tool)]
 pub struct ZenohMultiplayerPeer {
@@ -440,6 +445,14 @@ impl ZenohMultiplayerPeer {
         Error::FAILED
     }
 
+    /// Creates a Zenoh client that connects to a server.
+    ///
+    /// # Arguments
+    /// * `address` - The server address to connect to
+    /// * `port` - The port number to connect to
+    ///
+    /// # Returns
+    /// Error::OK on success, or an error code on failure
     #[func]
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
         // godot_print!("create_client called: {}:{}", address, port);
@@ -473,6 +486,14 @@ impl ZenohMultiplayerPeer {
         Error::OK
     }
 
+    /// Creates a Zenoh server that listens for client connections.
+    ///
+    /// # Arguments
+    /// * `port` - The port number to listen on
+    /// * `_max_clients` - Maximum number of clients (currently unused)
+    ///
+    /// # Returns
+    /// Error::OK on success, or an error code on failure
     #[func]
     fn create_server(&mut self, port: i32, _max_clients: i32) -> Error {
         godot_print!("Creating Zenoh server asynchronously on port {}", port);
