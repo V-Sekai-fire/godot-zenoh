@@ -3,15 +3,15 @@ target/
 Cargo.lock
 
 # Godot
-.godot/
-*.import
-export_presets.cfg
-*.tmp
-*.swp
-*.swo
+sample/.godot/
+sample/*.import
+sample/export_presets.cfg
+sample/*.tmp
+sample/*.swp
+sample/*.swo
 
 # GDExtension builds
-addons/godot-zenoh/
+sample/addons/godot-zenoh/
 godot-bin/
 
 # Test artifacts

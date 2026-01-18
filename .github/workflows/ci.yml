@@ -44,7 +44,7 @@ jobs:
         if: runner.os != 'Windows'
 
       - name: Build extension
-        run: ./build.sh
+        run: ./misc/build.sh
 
       - name: Run tests
         run: cargo test --verbose
@@ -250,7 +250,7 @@ jobs:
 
           PEER_PIDS=()
           for i in $(seq 1 $NUM_PEERS); do
-              timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer$i.log 2>&1 &
+              timeout 20s godot --headless --path sample sample/godot_zenoh/scenes/main_scene.tscn > test_logs/peer$i.log 2>&1 &
               PEER_PIDS[$i]=$!
               sleep 1
           done

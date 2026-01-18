@@ -12,6 +12,13 @@ NUM_PEERS=${NUM_PEERS:-2}
 
 echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD (Peers: $NUM_PEERS)"
 
+# Check if godot is available
+if ! command -v godot &> /dev/null; then
+    echo "⚠️  Godot not found locally - skipping multi-peer test"
+    echo "✅ Local test skipped (Godot not installed)"
+    exit 0
+fi
+
 # Force shutdown any existing zenohd processes
 echo "🛑 Force shutting down any existing zenohd processes..."
 pkill -9 -f zenohd || true
@@ -59,7 +66,7 @@ echo "🎮 Starting $NUM_PEERS Godot peers..."
 
 PEER_PIDS=()
 for i in $(seq 1 $NUM_PEERS); do
-    timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer$i.log 2>&1 &
+    timeout 20s godot --headless --path sample sample/godot_zenoh/scenes/main_scene.tscn > test_logs/peer$i.log 2>&1 &
     PEER_PIDS[$i]=$!
     sleep 1
 done
