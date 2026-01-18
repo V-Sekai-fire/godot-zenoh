@@ -1,5 +1,5 @@
 use rstest::rstest;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 /// Simplified test peer structure for unit testing channel logic
@@ -27,7 +27,10 @@ impl TestPeer {
 
     fn add_packet_to_channel(&self, channel: i32, data: Vec<u8>) {
         let mut queues = self.packet_queues.lock().unwrap();
-        queues.entry(channel).or_insert_with(VecDeque::new).push_back(data);
+        queues
+            .entry(channel)
+            .or_insert_with(VecDeque::new)
+            .push_back(data);
     }
 
     fn get_packet(&self, buffer: &mut [u8]) -> Result<(), &'static str> {

@@ -28,7 +28,8 @@ mod networking_state_machine_tests {
 
         // Process channels in priority order (simulate HOL prevention)
         for &channel in &channels {
-            if channel < 100 { // Skip low priority for test
+            if channel < 100 {
+                // Skip low priority for test
                 processed_channels.push(channel);
             }
         }

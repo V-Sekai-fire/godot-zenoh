@@ -29,11 +29,7 @@ pub struct ZenohSession {
 
 impl ZenohSession {
     /// Create Zenoh networking client session (connects to server peer)
-    pub async fn create_client(
-        game_id: GString,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-
-
+    pub async fn create_client(game_id: GString) -> Result<Self, Box<dyn std::error::Error>> {
         // Configure session with longer timeouts to prevent disconnections
         std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
         std::env::set_var("ZENOH_CLOSE_TIMEOUT", "30000"); // 30 seconds
@@ -42,9 +38,7 @@ impl ZenohSession {
         // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
-            Ok(sess) => {
-                Arc::new(sess)
-            }
+            Ok(sess) => Arc::new(sess),
             Err(e) => {
                 godot_error!("Zenoh CLIENT session creation failed: {:?}", e);
                 return Err(format!("Client session creation failed: {:?}", e).into());
@@ -85,9 +79,7 @@ impl ZenohSession {
         // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
-            Ok(sess) => {
-                Arc::new(sess)
-            }
+            Ok(sess) => Arc::new(sess),
             Err(e) => {
                 godot_error!("Zenoh SERVER router failed: {:?}", e);
                 return Err(format!("Server router failed: {:?}", e).into());
@@ -124,21 +116,20 @@ impl ZenohSession {
                 );
                 return Error::FAILED;
             }
-
-
         }
-
 
         self.queue_packet_locally(p_buffer, channel, self.peer_id);
         Error::OK
     }
 
     /// Setup publisher/subscriber for topic-based channel
-    pub async fn setup_channel(&self, channel: i32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn setup_channel(
+        &self,
+        channel: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let game_id = &self.game_id;
-        let topic: &'static str = Box::leak(
-            format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str(),
-        );
+        let topic: &'static str =
+            Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
 
         // Setup publisher if not exists
         if !self.publishers.lock().unwrap().contains_key(&channel) {
@@ -162,7 +153,14 @@ impl ZenohSession {
     /// Get HLC timestamp from Zenoh session
     pub fn get_hlc_timestamp(&self) -> Result<String, Box<dyn std::error::Error>> {
         // Extract HLC-like timestamp using system time and process ID for distributed coordination
-        let hlc_timestamp = format!("HLC:PID{}:TIME{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let hlc_timestamp = format!(
+            "HLC:PID{}:TIME{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         Ok(hlc_timestamp)
     }
 

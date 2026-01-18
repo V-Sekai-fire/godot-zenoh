@@ -15,10 +15,18 @@ use crate::networking::{Packet, ZenohSession};
 // Async command types for Zenoh operations
 #[derive(Debug)]
 enum ZenohCommand {
-    CreateServer { port: i32 },
+    CreateServer {
+        port: i32,
+    },
     #[allow(dead_code)] // Note: address and port fields are reserved for future functionality
-    CreateClient { address: String, port: i32 },
-    SendPacket { data: Vec<u8>, channel: i32 },
+    CreateClient {
+        address: String,
+        port: i32,
+    },
+    SendPacket {
+        data: Vec<u8>,
+        channel: i32,
+    },
     GetHLCTimestamp,
 }
 enum ZenohStateUpdate {
@@ -34,9 +42,7 @@ struct ZenohActor {
 }
 
 impl ZenohActor {
-    fn new(
-        game_id: GodotString,
-    ) -> Self {
+    fn new(game_id: GodotString) -> Self {
         Self {
             session: None,
             game_id,
@@ -46,12 +52,7 @@ impl ZenohActor {
     async fn handle_command(&mut self, cmd: ZenohCommand) -> Option<ZenohStateUpdate> {
         match cmd {
             ZenohCommand::CreateServer { port } => {
-                match ZenohSession::create_server(
-                    port,
-                    self.game_id.clone(),
-                )
-                .await
-                {
+                match ZenohSession::create_server(port, self.game_id.clone()).await {
                     Ok(s) => {
                         let zid = s.get_zid();
                         self.session = Some(s);
@@ -61,7 +62,10 @@ impl ZenohActor {
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
-                                        error: format!("Server channel setup failed for {}", channel),
+                                        error: format!(
+                                            "Server channel setup failed for {}",
+                                            channel
+                                        ),
                                     });
                                 }
                             }
@@ -75,12 +79,11 @@ impl ZenohActor {
                     }),
                 }
             }
-            ZenohCommand::CreateClient { address: _, port: _ } => {
-                match ZenohSession::create_client(
-                    self.game_id.clone(),
-                )
-                .await
-                {
+            ZenohCommand::CreateClient {
+                address: _,
+                port: _,
+            } => {
+                match ZenohSession::create_client(self.game_id.clone()).await {
                     Ok(s) => {
                         let zid = s.get_zid();
                         let peer_id = s.get_peer_id();
@@ -91,14 +94,20 @@ impl ZenohActor {
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
-                                        error: format!("Client channel setup failed for {}", channel),
+                                        error: format!(
+                                            "Client channel setup failed for {}",
+                                            channel
+                                        ),
                                     });
                                 }
                             }
                             // Channels setup successfully
                         }
 
-                        Some(ZenohStateUpdate::ClientConnected { zid, peer_id: peer_id as i32 })
+                        Some(ZenohStateUpdate::ClientConnected {
+                            zid,
+                            peer_id: peer_id as i32,
+                        })
                     }
                     Err(e) => Some(ZenohStateUpdate::ConnectionFailed {
                         error: e.to_string(),
@@ -155,7 +164,12 @@ impl ZenohAsyncBridge {
 
         // Spawn the worker thread
         let join_handle = thread::spawn(move || {
-            let _ = Self::zenoh_worker_thread(actor, cmd_queue_clone, event_queue_clone, stop_flag_clone);
+            let _ = Self::zenoh_worker_thread(
+                actor,
+                cmd_queue_clone,
+                event_queue_clone,
+                stop_flag_clone,
+            );
         });
 
         Self {
@@ -263,8 +277,6 @@ pub struct ZenohMultiplayerPeer {
 
     base: Base<MultiplayerPeerExtension>,
 }
-
-
 
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
@@ -385,17 +397,17 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         // Worker thread handles async operations
     }
 
-	fn close(&mut self) {
-		// Only log if we were actually connected
-		if self.connection_status != 0 {
-			godot_print!("ZenohMultiplayerPeer connection closed");
-		}
-		self.connection_status = 0; // DISCONNECTED
-									// Clear all packet queues
-		self.packet_queues.lock().unwrap().clear();
-		// Clear send queues on close
-		// Note: Zenoh session will be dropped when async_bridge is dropped
-	}
+    fn close(&mut self) {
+        // Only log if we were actually connected
+        if self.connection_status != 0 {
+            godot_print!("ZenohMultiplayerPeer connection closed");
+        }
+        self.connection_status = 0; // DISCONNECTED
+                                    // Clear all packet queues
+        self.packet_queues.lock().unwrap().clear();
+        // Clear send queues on close
+        // Note: Zenoh session will be dropped when async_bridge is dropped
+    }
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
         // Virtual channels handle packets, not peer connections
@@ -671,7 +683,7 @@ impl ZenohMultiplayerPeer {
         dict.set("packet_count", self.get_available_packet_count());
         dict.set("server_address", self.get_server_address());
         dict.set("connected_clients", self.get_connected_clients_count());
-        dict.set("elapsed", 0);  // Dummy value for compatibility
+        dict.set("elapsed", 0); // Dummy value for compatibility
         dict
     }
 
@@ -703,7 +715,7 @@ impl ZenohMultiplayerPeer {
             },
         );
         dict.set("special", "");
-        dict.set("elapsed", 0);  // Dummy value for compatibility
+        dict.set("elapsed", 0); // Dummy value for compatibility
         dict
     }
 
