@@ -38,7 +38,7 @@ echo "Target: $TARGET_TRIPLE"
 echo "Library extension: $LIB_EXT"
 
 # Build the release version
-~/.cargo/bin/cargo build --release
+cargo build --release
 
 # Copy the built library to the godot-bin directory
 LIB_NAME="libgodot_zenoh.$LIB_EXT"
