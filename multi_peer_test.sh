@@ -7,7 +7,6 @@ echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD"
 
 mkdir -p test_logs
 
-# Launch 3 Godot peers simultaneously
 echo "🎮 Starting 3 Godot peers..."
 
 timeout 20s godot --headless godot_zenoh/scenes/main_scene.tscn > test_logs/peer1.log 2>&1 &
@@ -25,13 +24,10 @@ sleep 1
 echo "⏳ Enabling peer-to-peer communication for 30 seconds..."
 sleep 30
 
-# Cleanup
 echo "🧹 Cleaning up processes..."
-pkill -9 -f zenohd || true
 pkill -9 -f godot || true
 sleep 1
 
-# Validate results
 P1_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer1.log)
 P2_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer2.log)
 P3_CONN=$(grep -c "CLIENT CONNECTED\|connected to network" test_logs/peer3.log)
