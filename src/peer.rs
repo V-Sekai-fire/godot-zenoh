@@ -353,10 +353,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             }
         }
 
-        if let Some(bridge) = &self.async_bridge {
-            let _ = bridge.send_command(ZenohCommand::GetTimestamp);
-        }
-
         // HOL blocking prevention doesn't require additional polling
         // Worker thread handles async operations
     }
@@ -538,43 +534,7 @@ impl ZenohMultiplayerPeer {
     }
 
     #[func]
-    fn get_network_info(&self) -> VarDictionary {
-        let mut dict = VarDictionary::new();
-        dict.set("status", self.connection_status());
-        dict.set("unique_id", self.get_unique_id());
-        dict.set("zid", self.get_zid());
-        dict.set("is_server", self.is_server());
-        dict.set("packet_count", self.get_available_packet_count());
-        dict.set("server_address", self.get_server_address());
-        dict.set("connected_clients", self.get_connected_clients_count());
-        dict.set("elapsed", self.current_timestamp); // Zenoh timestamp
-        dict
-    }
-
-    #[func]
     fn get_channel_packet_count(&self, _channel: i32) -> i32 {
         0
-    }
-
-    #[func]
-    fn get_channel_info(&self, channel: i32) -> VarDictionary {
-        let mut dict = VarDictionary::new();
-        dict.set("channel", channel);
-        dict.set("packet_count", self.get_channel_packet_count(channel));
-        dict.set(
-            "priority",
-            if channel == 0 {
-                "highest"
-            } else if channel <= 10 {
-                "high"
-            } else if channel <= 100 {
-                "normal"
-            } else {
-                "low"
-            },
-        );
-        dict.set("special", "");
-        dict.set("elapsed", self.current_timestamp); // Zenoh timestamp
-        dict
     }
 }
