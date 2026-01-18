@@ -60,15 +60,6 @@ func _notification(what):
 		if timer: timer.stop()
 		if zenoh_peer: zenoh_peer.close()
 
-	label = Label.new()
-	label.text = "Connecting..."
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(label)
-
-	var desc = Label.new()
-	desc.text = "Auto-connects peers via Zenoh network.\nCI/CD compatible, silent operation."
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(desc)
 func setup_ui():
 	var window = Window.new()
 	add_child(window)
