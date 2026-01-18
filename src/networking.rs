@@ -1,6 +1,6 @@
 use godot::global::Error;
 use godot::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use zenoh::pubsub::Publisher;
@@ -9,9 +9,8 @@ use zenoh::time::Timestamp;
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
-    pub data: Vec<u8>,        // Packet payload data
+    pub data: Vec<u8>,        // Using Vec<u8> - will optimize to ZBuf when api known
     pub timestamp: Timestamp, // Zenoh timestamp for distributed coordination
-    pub peer_id: i64,         // Sender peer ID
 }
 
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
@@ -20,8 +19,6 @@ pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
-    /// Packet queues for each channel
-    packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     /// Game identifier
     game_id: String,
     /// Unique peer identifier
@@ -65,7 +62,6 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
-            packet_queues: Arc::new(Mutex::new(HashMap::new())),
             game_id,
             peer_id,
         })
@@ -105,7 +101,6 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
-            packet_queues: Arc::new(Mutex::new(HashMap::new())),
             game_id,
             peer_id,
         })
@@ -152,42 +147,6 @@ impl ZenohSession {
             self.publishers.lock().unwrap().insert(channel, publisher);
         }
 
-        // Setup subscriber and receiver task
-        {
-            let subscriber = self.session.declare_subscriber(topic).await?;
-            let queue_clone = Arc::clone(&self.packet_queues);
-            let session_clone = Arc::clone(&self.session);
-            tokio::spawn(async move {
-                loop {
-                    match subscriber.recv_async().await {
-                        Ok(sample) => {
-                            let payload = sample.payload().to_bytes().to_vec();
-                            if payload.len() >= 8 {
-                                let peer_id_bytes: [u8; 8] = payload[0..8].try_into().unwrap();
-                                let peer_id = i64::from_le_bytes(peer_id_bytes);
-                                let data = payload[8..].to_vec();
-                                let timestamp = sample
-                                    .timestamp()
-                                    .copied()
-                                    .unwrap_or_else(|| session_clone.new_timestamp());
-                                let packet = Packet {
-                                    data,
-                                    timestamp,
-                                    peer_id,
-                                };
-                                let mut queues = queue_clone.lock().unwrap();
-                                queues
-                                    .entry(channel)
-                                    .or_insert(VecDeque::new())
-                                    .push_back(packet);
-                            }
-                        }
-                        Err(_) => break, // Subscriber closed or error
-                    }
-                }
-            });
-        }
-
         Ok(())
     }
 
@@ -204,27 +163,5 @@ impl ZenohSession {
     /// Get Zenoh timestamp
     pub fn get_timestamp(&self) -> Timestamp {
         self.session.new_timestamp()
-    }
-
-    /// Get total available packet count across all channels
-    pub fn get_available_packet_count(&self) -> i32 {
-        let queues = self.packet_queues.lock().unwrap();
-        queues.values().map(|q| q.len() as i32).sum()
-    }
-
-    /// Get packet count for specific channel
-    pub fn get_channel_packet_count(&self, channel: i32) -> i32 {
-        let queues = self.packet_queues.lock().unwrap();
-        queues.get(&channel).map(|q| q.len() as i32).unwrap_or(0)
-    }
-
-    /// Get next packet from specific channel
-    pub fn get_packet(&self, channel: i32) -> Option<Packet> {
-        let mut queues = self.packet_queues.lock().unwrap();
-        if let Some(queue) = queues.get_mut(&channel) {
-            queue.pop_front()
-        } else {
-            None
-        }
     }
 }

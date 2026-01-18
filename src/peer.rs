@@ -26,18 +26,12 @@ enum ZenohCommand {
         channel: i32,
     },
     GetTimestamp,
-    GetPacketCount,
-    GetChannelPacketCount {
-        channel: i32,
-    },
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i32 },
     ConnectionFailed { error: String },
     Timestamp { timestamp: i64 },
-    PacketCount { count: i32 },
-    ChannelPacketCount { channel: i32, count: i32 },
 }
 
 struct ZenohActor {
@@ -127,25 +121,6 @@ impl ZenohActor {
                     })
                 } else {
                     None
-                }
-            }
-            ZenohCommand::GetPacketCount => {
-                if let Some(sess) = &self.session {
-                    Some(ZenohStateUpdate::PacketCount {
-                        count: sess.get_available_packet_count(),
-                    })
-                } else {
-                    Some(ZenohStateUpdate::PacketCount { count: 0 })
-                }
-            }
-            ZenohCommand::GetChannelPacketCount { channel } => {
-                if let Some(sess) = &self.session {
-                    Some(ZenohStateUpdate::ChannelPacketCount {
-                        channel,
-                        count: sess.get_channel_packet_count(channel),
-                    })
-                } else {
-                    Some(ZenohStateUpdate::ChannelPacketCount { channel, count: 0 })
                 }
             }
         }
@@ -269,8 +244,6 @@ pub struct ZenohMultiplayerPeer {
 
     zid: GodotString,
     current_timestamp: i64,
-    cached_packet_count: i32,
-    cached_channel_count: i32,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -289,13 +262,11 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             current_packet_peer: 0,
             zid: GString::from(""),
             current_timestamp: 0,
-            cached_packet_count: 0,
-            cached_channel_count: 0,
             base: _base,
         }
     }
     fn get_available_packet_count(&self) -> i32 {
-        self.cached_packet_count
+        0
     }
 
     fn get_max_packet_size(&self) -> i32 {
@@ -381,12 +352,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                     ZenohStateUpdate::Timestamp { timestamp } => {
                         self.current_timestamp = timestamp;
                     }
-                    ZenohStateUpdate::PacketCount { count } => {
-                        self.cached_packet_count = count;
-                    }
-                    ZenohStateUpdate::ChannelPacketCount { channel: _, count } => {
-                        self.cached_channel_count = count;
-                    }
                 }
             }
         }
@@ -394,10 +359,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
         // Request timestamp update
         if let Some(bridge) = &self.async_bridge {
             let _ = bridge.send_command(ZenohCommand::GetTimestamp);
-            let _ = bridge.send_command(ZenohCommand::GetPacketCount);
-            let _ = bridge.send_command(ZenohCommand::GetChannelPacketCount {
-                channel: self.current_channel,
-            });
         }
 
         // HOL blocking prevention doesn't require additional polling
@@ -596,7 +557,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_channel_packet_count(&self, _channel: i32) -> i32 {
-        self.cached_channel_count
+        0
     }
 
     #[func]
