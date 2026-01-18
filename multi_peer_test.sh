@@ -12,6 +12,11 @@ NUM_PEERS=${NUM_PEERS:-2}
 
 echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD (Peers: $NUM_PEERS)"
 
+# Force shutdown any existing zenohd processes
+echo "🛑 Force shutting down any existing zenohd processes..."
+pkill -9 -f zenohd || true
+sleep 2
+
 mkdir -p test_logs
 
 # Start Zenoh router
