@@ -308,8 +308,10 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn poll(&mut self) {
+        godot_print!("Polling ZenohMultiplayerPeer - current status: {}", self.connection_status);
         if let Some(bridge) = &self.async_bridge {
             let events = bridge.get_events();
+            godot_print!("Received {} events from async bridge", events.len());
             for event in events {
                 match event {
                     ZenohStateUpdate::ClientConnected { zid, peer_id } => {
@@ -334,6 +336,8 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                     }
                 }
             }
+        } else {
+            godot_print!("No async bridge available for polling");
         }
 
         // HOL blocking prevention doesn't require additional polling
@@ -352,7 +356,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn get_unique_id(&self) -> i32 {
-        self.unique_id as i32
+        self.unique_id
     }
 
     fn get_connection_status(&self) -> ConnectionStatus {
@@ -414,9 +418,11 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn put_packet_on_channel(&mut self, p_buffer: PackedByteArray, channel: i32) -> Error {
+        godot_print!("put_packet_on_channel called: {} bytes on channel {}", p_buffer.len(), channel);
         // Use async bridge for sending packets
         if let Some(bridge) = &self.async_bridge {
             let data_vec = p_buffer.to_vec();
+            godot_print!("Sending packet via async bridge: {} bytes", data_vec.len());
             if let Err(e) = bridge.send_command(ZenohCommand::SendPacket {
                 data: data_vec,
                 channel,
@@ -424,6 +430,7 @@ impl ZenohMultiplayerPeer {
                 godot_error!("Failed to send packet via async bridge: {:?}", e);
                 return Error::FAILED;
             }
+            godot_print!("Packet queued for sending on channel {}", channel);
             return Error::OK;
         }
 
@@ -434,25 +441,23 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn create_client(&mut self, address: GodotString, port: i32) -> Error {
-        godot_print!(
-            "Creating Zenoh client asynchronously on {}:{}",
-            address,
-            port
-        );
-
+        godot_print!("create_client called: {}:{}", address, port);
         // Close any existing connection first
         self.close();
 
         // Set status to CONNECTING before attempting connection
         self.connection_status = 1; // CONNECTING
+        godot_print!("Status set to CONNECTING");
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
+            godot_print!("Initializing async bridge for client");
             self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
         }
 
         // Send async command to create client
         if let Some(bridge) = &mut self.async_bridge {
+            godot_print!("Sending create client command to async bridge");
             if let Err(e) = bridge.send_command(ZenohCommand::CreateClient {
                 address: address.to_string(),
                 port,
