@@ -379,9 +379,8 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 impl ZenohMultiplayerPeer {
     #[func]
     fn get_zid(&self) -> String {
-        let zid_str = self.zid.to_string();
-        // godot_print!("get_zid() returning: '{}'", zid_str);
-        zid_str
+        // godot_print!("get_zid() returning: '{}'", self.zid.to_string());
+        self.zid.to_string()
     }
 
     #[func]
