@@ -25,11 +25,13 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
+    GetTimestamp,
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i32 },
     ConnectionFailed { error: String },
+    Timestamp { timestamp: i64 },
 }
 
 struct ZenohActor {
@@ -111,6 +113,14 @@ impl ZenohActor {
                     let _result = sess.send_packet(&data, self.game_id.clone(), channel).await;
                 }
                 None
+            }
+            ZenohCommand::GetTimestamp => {
+                if let Some(sess) = &self.session {
+                    let ts = sess.get_timestamp();
+                    Some(ZenohStateUpdate::Timestamp { timestamp: ts.get_time().0 as i64 })
+                } else {
+                    None
+                }
             }
         }
     }
@@ -234,6 +244,7 @@ pub struct ZenohMultiplayerPeer {
     current_packet_peer: i32,
 
     zid: GodotString,
+    current_timestamp: i64,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -252,6 +263,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
+            current_timestamp: 0,
             base: _base,
         }
     }
@@ -339,8 +351,16 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
+                    ZenohStateUpdate::Timestamp { timestamp } => {
+                        self.current_timestamp = timestamp;
+                    }
                 }
             }
+        }
+
+        // Request timestamp update
+        if let Some(bridge) = &self.async_bridge {
+            let _ = bridge.send_command(ZenohCommand::GetTimestamp);
         }
 
         // HOL blocking prevention doesn't require additional polling
@@ -537,7 +557,7 @@ impl ZenohMultiplayerPeer {
         dict.set("packet_count", self.get_available_packet_count());
         dict.set("server_address", self.get_server_address());
         dict.set("connected_clients", self.get_connected_clients_count());
-        dict.set("elapsed", 0); // Dummy value for compatibility
+        dict.set("elapsed", self.current_timestamp); // Zenoh timestamp
         dict
     }
 
@@ -564,7 +584,7 @@ impl ZenohMultiplayerPeer {
             },
         );
         dict.set("special", "");
-        dict.set("elapsed", 0); // No local queuing
+        dict.set("elapsed", self.current_timestamp); // Zenoh timestamp
         dict
     }
 }

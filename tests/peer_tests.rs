@@ -1,6 +1,4 @@
-use rstest::rstest;
 
-/// Simplified test peer structure for unit testing channel logic
 #[derive(Debug)]
 struct TestPeer {
     current_channel: i32,
@@ -19,10 +17,6 @@ impl TestPeer {
 
     fn transfer_channel(&self) -> i32 {
         self.current_channel
-    }
-
-    fn add_packet_to_channel(&self, _channel: i32, _data: Vec<u8>) {
-        // No local queuing
     }
 
     fn get_packet(&self, _buffer: &mut [u8]) -> Result<(), &'static str> {
