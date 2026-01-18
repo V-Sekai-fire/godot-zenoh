@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 struct TestPeer {
     current_channel: i32,
@@ -6,9 +5,7 @@ struct TestPeer {
 
 impl TestPeer {
     fn new() -> Self {
-        TestPeer {
-            current_channel: 0,
-        }
+        TestPeer { current_channel: 0 }
     }
 
     fn set_transfer_channel(&mut self, channel: i32) {

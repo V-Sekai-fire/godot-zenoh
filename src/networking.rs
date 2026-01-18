@@ -1,4 +1,3 @@
-use godot::builtin::GString;
 use godot::global::Error;
 use godot::prelude::*;
 use std::collections::HashMap;
@@ -10,7 +9,7 @@ use zenoh::time::Timestamp;
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
-    pub data: Vec<u8>,  // Using Vec<u8> - will optimize to ZBuf when api known
+    pub data: Vec<u8>,        // Using Vec<u8> - will optimize to ZBuf when api known
     pub timestamp: Timestamp, // Zenoh timestamp for distributed coordination
 }
 
@@ -21,14 +20,18 @@ pub struct ZenohSession {
     /// Publishers for each channel (lazy initialization)
     publishers: Arc<Mutex<HashMap<i32, Publisher<'static>>>>,
     /// Game identifier
-    game_id: GString,
+    game_id: String,
     /// Unique peer identifier
     peer_id: i64,
 }
 
 impl ZenohSession {
     /// Create Zenoh networking client session (connects to server peer)
-    pub async fn create_client(address: String, port: i32, game_id: GString) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn create_client(
+        address: String,
+        port: i32,
+        game_id: String,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Configure session to connect to the server router
         let connect_endpoint = format!("tcp/{}:{}", address, port);
         std::env::set_var("ZENOH_CONNECT", connect_endpoint);
@@ -42,7 +45,7 @@ impl ZenohSession {
         let session = match session_result {
             Ok(sess) => Arc::new(sess),
             Err(e) => {
-                godot_error!("Zenoh CLIENT session creation failed: {:?}", e);
+                eprintln!("Zenoh CLIENT session creation failed: {:?}", e);
                 return Err(format!("Client session creation failed: {:?}", e).into());
             }
         };
@@ -64,14 +67,19 @@ impl ZenohSession {
         })
     }
 
-    /// Create Zenoh networking server session (becomes authoritative router)
     pub async fn create_server(
         port: i32,
-        game_id: GString,
+        game_id: String,
+        connect_addr: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Server becomes authoritative router by listening on the specified port
         let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
         std::env::set_var("ZENOH_LISTEN", listen_endpoint);
+
+        // If connect address provided, connect to another router
+        if let Some(addr) = connect_addr {
+            std::env::set_var("ZENOH_CONNECT", addr);
+        }
 
         // Configure session with longer timeouts to prevent disconnections
         std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
@@ -82,7 +90,7 @@ impl ZenohSession {
         let session = match session_result {
             Ok(sess) => Arc::new(sess),
             Err(e) => {
-                godot_error!("Zenoh SERVER router failed: {:?}", e);
+                eprintln!("Zenoh SERVER router failed: {:?}", e);
                 return Err(format!("Server router failed: {:?}", e).into());
             }
         };
@@ -99,7 +107,7 @@ impl ZenohSession {
     }
 
     /// Send packet on specific topic-based channel (async)
-    pub async fn send_packet(&self, p_buffer: &[u8], game_id: GString, channel: i32) -> Error {
+    pub async fn send_packet(&self, p_buffer: &[u8], game_id: String, channel: i32) -> Error {
         let _topic = format!("godot/game/{}/channel{:03}", game_id, channel);
 
         // Try to get existing publisher
@@ -110,10 +118,9 @@ impl ZenohSession {
             packet_data.extend_from_slice(p_buffer);
 
             if let Err(e) = publisher.put(packet_data).await {
-                godot_error!(
+                eprintln!(
                     "Failed to send Zenoh packet on channel {}: {:?}",
-                    channel,
-                    e
+                    channel, e
                 );
                 return Error::FAILED;
             }

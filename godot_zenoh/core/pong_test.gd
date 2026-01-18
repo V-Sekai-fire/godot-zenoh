@@ -22,21 +22,18 @@ func _connect_to_network():
 	zenoh_peer = ZenohMultiplayerPeer.new()
 	zenoh_peer.game_id = "godot_zenoh_test"
 
+	var port = int(OS.get_environment("ZENOH_PORT")) if OS.get_environment("ZENOH_PORT") else 7447
+
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
 	peer_id = "Peer_" + str(rng.randi_range(1000, 9999))
 
-	var client_result = zenoh_peer.create_client("localhost", 7447)
-	if client_result == 0:
-		label.text = "OK Connected as CLIENT\nPeer: " + peer_id
+	var server_result = zenoh_peer.create_server(port, 32)
+	if server_result == 0:
+		label.text = "OK Started as SERVER on port " + str(port) + "\nPeer: " + peer_id
 		connected = true
 	else:
-		var server_result = zenoh_peer.create_server(7447, 32)
-		if server_result == 0:
-			label.text = "OK Started as SERVER\nPeer: " + peer_id
-			connected = true
-		else:
-			label.text = "ERROR Connection failed"
+		label.text = "ERROR Server creation failed on port " + str(port)
 
 func _process(delta):
 	if zenoh_peer:

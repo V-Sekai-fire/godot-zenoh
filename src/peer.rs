@@ -9,7 +9,7 @@ use godot::global::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::networking::{ZenohSession};
+use crate::networking::ZenohSession;
 
 #[derive(Debug)]
 enum ZenohCommand {
@@ -50,7 +50,7 @@ impl ZenohActor {
     async fn handle_command(&mut self, cmd: ZenohCommand) -> Option<ZenohStateUpdate> {
         match cmd {
             ZenohCommand::CreateServer { port } => {
-                match ZenohSession::create_server(port, self.game_id.clone()).await {
+                match ZenohSession::create_server(port, self.game_id.to_string(), None).await {
                     Ok(s) => {
                         let zid = s.get_zid();
                         self.session = Some(s);
@@ -75,11 +75,8 @@ impl ZenohActor {
                     }),
                 }
             }
-            ZenohCommand::CreateClient {
-                address,
-                port,
-            } => {
-                match ZenohSession::create_client(address, port, self.game_id.clone()).await {
+            ZenohCommand::CreateClient { address, port } => {
+                match ZenohSession::create_client(address, port, self.game_id.to_string()).await {
                     Ok(s) => {
                         let zid = s.get_zid();
                         let peer_id = s.get_peer_id();
@@ -110,14 +107,18 @@ impl ZenohActor {
             }
             ZenohCommand::SendPacket { data, channel } => {
                 if let Some(sess) = &mut self.session {
-                    let _result = sess.send_packet(&data, self.game_id.clone(), channel).await;
+                    let _result = sess
+                        .send_packet(&data, self.game_id.to_string(), channel)
+                        .await;
                 }
                 None
             }
             ZenohCommand::GetTimestamp => {
                 if let Some(sess) = &self.session {
                     let ts = sess.get_timestamp();
-                    Some(ZenohStateUpdate::Timestamp { timestamp: ts.get_time().0 as i64 })
+                    Some(ZenohStateUpdate::Timestamp {
+                        timestamp: ts.get_time().0 as i64,
+                    })
                 } else {
                     None
                 }
@@ -134,9 +135,7 @@ struct ZenohAsyncBridge {
 }
 
 impl ZenohAsyncBridge {
-    fn new(
-        game_id: GodotString,
-    ) -> Self {
+    fn new(game_id: GodotString) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
         let stop_flag = Arc::new(Mutex::new(false));
@@ -252,7 +251,6 @@ pub struct ZenohMultiplayerPeer {
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
-
         Self {
             game_id: GString::new(),
             async_bridge: None,
@@ -475,9 +473,7 @@ impl ZenohMultiplayerPeer {
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
-                self.game_id.clone(),
-            )));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
         }
 
         // Send async command to create client
@@ -508,9 +504,7 @@ impl ZenohMultiplayerPeer {
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
-                self.game_id.clone(),
-            )));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
         }
 
         // Send async command to create server
