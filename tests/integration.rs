@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod networking_state_machine_tests {
-    // Minimal tests for Zenoh networking state machine transitions
-
     #[test]
     fn test_connection_state_transitions() {
         // Test basic connection state machine transitions

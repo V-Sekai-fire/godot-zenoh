@@ -6,14 +6,11 @@ use godot::prelude::*;
 
 use godot::builtin::GString as GodotString;
 use godot::global::Error;
-use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::networking::{Packet, ZenohSession};
-// use uhlc::ID; NEVER USE UHLC.
+use crate::networking::{ZenohSession};
 
-// Async command types for Zenoh operations
 #[derive(Debug)]
 enum ZenohCommand {
     CreateServer {
@@ -35,7 +32,6 @@ enum ZenohStateUpdate {
     ConnectionFailed { error: String },
 }
 
-// Async actor for Zenoh operations (properly thread-safe)
 struct ZenohActor {
     session: Option<ZenohSession>,
     game_id: GodotString,
@@ -57,7 +53,6 @@ impl ZenohActor {
                         let zid = s.get_zid();
                         self.session = Some(s);
 
-                        // Auto-setup all 256 virtual channels for server
                         if let Some(sess) = &mut self.session {
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
@@ -69,7 +64,6 @@ impl ZenohActor {
                                     });
                                 }
                             }
-                            // Channels setup successfully
                         }
 
                         Some(ZenohStateUpdate::ServerCreated { zid })
@@ -89,7 +83,6 @@ impl ZenohActor {
                         let peer_id = s.get_peer_id();
                         self.session = Some(s);
 
-                        // Setup all 256 virtual channels for the client
                         if let Some(sess) = &mut self.session {
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
@@ -101,7 +94,6 @@ impl ZenohActor {
                                     });
                                 }
                             }
-                            // Channels setup successfully
                         }
 
                         Some(ZenohStateUpdate::ClientConnected {
@@ -117,15 +109,13 @@ impl ZenohActor {
             ZenohCommand::SendPacket { data, channel } => {
                 if let Some(sess) = &mut self.session {
                     let _result = sess.send_packet(&data, self.game_id.clone(), channel).await;
-                    // Send result is not critical - silent failure for now
                 }
-                None // No event for successful send
+                None
             }
         }
     }
 }
 
-// Async bridge using std::thread to avoid runtime nesting issues
 struct ZenohAsyncBridge {
     command_queue: Arc<Mutex<Vec<ZenohCommand>>>,
     event_queue: Arc<Mutex<Vec<ZenohStateUpdate>>>,
@@ -135,7 +125,6 @@ struct ZenohAsyncBridge {
 
 impl ZenohAsyncBridge {
     fn new(
-        _packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
         game_id: GodotString,
     ) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
@@ -148,7 +137,6 @@ impl ZenohAsyncBridge {
 
         let actor = ZenohActor::new(game_id);
 
-        // Spawn the worker thread
         let join_handle = thread::spawn(move || {
             let _ = Self::zenoh_worker_thread(
                 actor,
@@ -172,35 +160,29 @@ impl ZenohAsyncBridge {
         event_queue: Arc<Mutex<Vec<ZenohStateUpdate>>>,
         stop_flag: Arc<Mutex<bool>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Create tokio runtime in thread (avoids GDextension nesting)
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
             .build()?;
 
         rt.block_on(async {
-            // Worker thread is pure state machine - no sleeps, only queue-driven processing
             loop {
-                // State machine: Check for stop signal (immediate exit)
                 if *stop_flag.lock().unwrap() {
                     break;
                 }
 
-                // State machine: Process command queue (non-blocking)
                 let cmds = {
                     let mut queue = command_queue.lock().unwrap();
                     std::mem::take(&mut *queue)
                 };
 
                 if !cmds.is_empty() {
-                    // Process each command atomically
                     for cmd in cmds {
                         if let Some(event) = actor.handle_command(cmd).await {
                             event_queue.lock().unwrap().push(event);
                         }
                     }
                 } else {
-                    // Queue empty, yield control via tokio scheduler (efficient wait)
                     tokio::task::yield_now().await;
                 }
             }
@@ -210,7 +192,6 @@ impl ZenohAsyncBridge {
     }
 
     fn send_command(&self, cmd: ZenohCommand) -> Result<(), Box<dyn std::error::Error>> {
-        // Block on command queue lock - this is intentional for thread safety
         let mut queue = self.command_queue.lock().unwrap();
         queue.push(cmd);
         godot_print!("Command queued for worker thread");
@@ -242,23 +223,16 @@ pub struct ZenohMultiplayerPeer {
     #[export]
     game_id: GodotString,
 
-    // Async bridge for Zenoh networking
     async_bridge: Option<Box<ZenohAsyncBridge>>,
-
-    // Peer management
     unique_id: i32,
     connection_status: i32,
     transfer_mode: i32,
 
-    // HOL Blocking Prevention: Virtual Channel System
-    packet_queues: Arc<Mutex<HashMap<i32, VecDeque<Packet>>>>,
     current_channel: i32,
     max_packet_size: i32,
 
-    // Current packet information for get_packet_* methods
     current_packet_peer: i32,
 
-    // Store ZID for get_zid() method
     zid: GodotString,
 
     base: Base<MultiplayerPeerExtension>,
@@ -267,27 +241,22 @@ pub struct ZenohMultiplayerPeer {
 #[godot_api]
 impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     fn init(_base: Base<MultiplayerPeerExtension>) -> Self {
-        // Silent initialization - no verbose output per Unix philosophy
 
         Self {
             game_id: GString::new(),
             async_bridge: None,
             unique_id: 1,
-            connection_status: 0, // DISCONNECTED
-            transfer_mode: 0,     // UNRELIABLE
-            packet_queues: Arc::new(Mutex::new(HashMap::new())),
+            connection_status: 0,
+            transfer_mode: 0,
             current_channel: 0,
-            max_packet_size: 1472, // UDP MTU - Zenoh overhead
+            max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
             base: _base,
         }
     }
-
-    // Virtual method overrides for multiplayer peer functionality
     fn get_available_packet_count(&self) -> i32 {
-        let queues = self.packet_queues.lock().unwrap();
-        queues.values().map(|q| q.len() as i32).sum()
+        0
     }
 
     fn get_max_packet_size(&self) -> i32 {
@@ -317,11 +286,10 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn set_transfer_mode(&mut self, mode: TransferMode) {
-        // Zenoh is a pub/sub system without guaranteed delivery, so treat RELIABLE as UNRELIABLE_ORDERED
         self.transfer_mode = match mode {
             TransferMode::UNRELIABLE => 0,
             TransferMode::UNRELIABLE_ORDERED => 1,
-            TransferMode::RELIABLE => 1, // Treat RELIABLE as UNRELIABLE_ORDERED since Zenoh doesn't guarantee delivery
+            TransferMode::RELIABLE => 1,
             _ => 0,
         };
         godot_print!(
@@ -335,7 +303,6 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn set_target_peer(&mut self, _peer_id: i32) {
-        // Virtual channels don't use target peer concept
         godot_print!("Target peer setting not applicable for virtual channels");
     }
 
@@ -348,31 +315,28 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn poll(&mut self) {
-        // Get events from worker thread
         if let Some(bridge) = &self.async_bridge {
             let events = bridge.get_events();
             for event in events {
                 match event {
                     ZenohStateUpdate::ClientConnected { zid, peer_id } => {
-                        self.connection_status = 2; // CONNECTED
+                        self.connection_status = 2;
                         self.unique_id = peer_id;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("CLIENT CONNECTED: ZID: {}, Peer ID: {}", zid, peer_id);
 
-                        // Emit connected_to_server signal for clients
                         self.base_mut().emit_signal("connected_to_server", &[]);
                     }
                     ZenohStateUpdate::ServerCreated { zid } => {
-                        self.connection_status = 2; // CONNECTED
-                        self.unique_id = 1; // Server is peer 1
+                        self.connection_status = 2;
+                        self.unique_id = 1;
                         self.zid = GString::from(zid.as_str());
                         godot_print!("SERVER CREATED: ZID: {}, Peer ID: {}", zid, self.unique_id);
                     }
                     ZenohStateUpdate::ConnectionFailed { error } => {
-                        self.connection_status = 0; // DISCONNECTED
+                        self.connection_status = 0;
                         godot_error!("CONNECTION FAILED: {}", error);
 
-                        // Emit connection_failed signal
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
                 }
@@ -384,19 +348,13 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn close(&mut self) {
-        // Only log if we were actually connected
         if self.connection_status != 0 {
             godot_print!("ZenohMultiplayerPeer connection closed");
         }
-        self.connection_status = 0; // DISCONNECTED
-                                    // Clear all packet queues
-        self.packet_queues.lock().unwrap().clear();
-        // Clear send queues on close
-        // Note: Zenoh session will be dropped when async_bridge is dropped
+        self.connection_status = 0;
     }
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
-        // Virtual channels handle packets, not peer connections
         godot_print!("Peer disconnection not applicable for virtual channels");
     }
 
@@ -447,29 +405,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-        // Process packets by priority: always check lowest channel number first
-        // Channels are ordered 0=highest priority, 255=lowest priority
-        let mut queues = self.packet_queues.lock().unwrap();
-        for priority in 0..=255 {
-            if let Some(queue) = queues.get_mut(&priority) {
-                if let Some(packet) = queue.pop_front() {
-                    // Store sender peer ID for get_packet_peer() - TODO: parse from HLC
-                    self.current_packet_peer = 0; // Placeholder until HLC parsing implemented
-                    // Update current channel so get_packet_channel() returns the correct channel
-                    self.current_channel = priority;
-
-                    godot_print!(
-                        "DEBUG: Retrieved packet from channel {} (size: {}, timestamp: {:?})",
-                        priority,
-                        packet.data.len(),
-                        packet.timestamp
-                    );
-                    // Convert Vec<u8> directly to PackedByteArray
-                    return PackedByteArray::from_iter(packet.data.iter().copied());
-                }
-            }
-        }
-        godot_print!("DEBUG: No packets available in any queue");
+        godot_print!("DEBUG: No packets available - local queuing disabled");
         PackedByteArray::new()
     }
 
@@ -520,7 +456,6 @@ impl ZenohMultiplayerPeer {
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
-                Arc::clone(&self.packet_queues),
                 self.game_id.clone(),
             )));
         }
@@ -554,7 +489,6 @@ impl ZenohMultiplayerPeer {
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
-                Arc::clone(&self.packet_queues),
                 self.game_id.clone(),
             )));
         }
@@ -608,13 +542,8 @@ impl ZenohMultiplayerPeer {
     }
 
     #[func]
-    fn get_channel_packet_count(&self, channel: i32) -> i32 {
-        let queues = self.packet_queues.lock().unwrap();
-        if let Some(queue) = queues.get(&channel) {
-            queue.len() as i32
-        } else {
-            0
-        }
+    fn get_channel_packet_count(&self, _channel: i32) -> i32 {
+        0
     }
 
     #[func]
@@ -635,7 +564,7 @@ impl ZenohMultiplayerPeer {
             },
         );
         dict.set("special", "");
-        dict.set("elapsed", 0); // Dummy value for compatibility
+        dict.set("elapsed", 0); // No local queuing
         dict
     }
 }
