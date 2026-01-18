@@ -16,6 +16,8 @@ godot-bin/
 
 # Test artifacts
 test_logs/
+certs/
+quic_config.json5
 Godot_v*.zip
 godot
 

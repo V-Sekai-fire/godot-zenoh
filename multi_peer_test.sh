@@ -17,11 +17,33 @@ echo "🛑 Force shutting down any existing zenohd processes..."
 pkill -9 -f zenohd || true
 sleep 2
 
+# Generate self-signed certificates for QUIC
+echo "🔐 Generating self-signed certificates for QUIC..."
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+
+# Create QUIC configuration file
+cat > quic_config.json5 << 'EOF'
+{
+  listen: {
+    endpoints: ["quic/127.0.0.1:7447"]
+  },
+  transport: {
+    link: {
+      tls: {
+        listen_certificate: "certs/cert.pem",
+        listen_private_key: "certs/key.pem"
+      }
+    }
+  }
+}
+EOF
+
 mkdir -p test_logs
 
 # Start Zenoh router
 echo "📡 Launching Zenoh network router..."
-zenohd --listen tcp/127.0.0.1:7447 > test_logs/zenohd.log 2>&1 &
+zenohd -c quic_config.json5 > test_logs/zenohd.log 2>&1 &
 ZENOH_PID=$!
 sleep 3
 
