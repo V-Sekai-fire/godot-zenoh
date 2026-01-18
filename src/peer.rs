@@ -308,7 +308,10 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
     }
 
     fn poll(&mut self) {
-        godot_print!("Polling ZenohMultiplayerPeer - current status: {}", self.connection_status);
+        godot_print!(
+            "Polling ZenohMultiplayerPeer - current status: {}",
+            self.connection_status
+        );
         if let Some(bridge) = &self.async_bridge {
             let events = bridge.get_events();
             godot_print!("Received {} events from async bridge", events.len());
@@ -418,7 +421,11 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn put_packet_on_channel(&mut self, p_buffer: PackedByteArray, channel: i32) -> Error {
-        godot_print!("put_packet_on_channel called: {} bytes on channel {}", p_buffer.len(), channel);
+        godot_print!(
+            "put_packet_on_channel called: {} bytes on channel {}",
+            p_buffer.len(),
+            channel
+        );
         // Use async bridge for sending packets
         if let Some(bridge) = &self.async_bridge {
             let data_vec = p_buffer.to_vec();
