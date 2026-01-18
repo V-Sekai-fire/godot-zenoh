@@ -76,10 +76,10 @@ impl ZenohActor {
                 }
             }
             ZenohCommand::CreateClient {
-                address: _,
-                port: _,
+                address,
+                port,
             } => {
-                match ZenohSession::create_client(self.game_id.clone()).await {
+                match ZenohSession::create_client(address, port, self.game_id.clone()).await {
                     Ok(s) => {
                         let zid = s.get_zid();
                         let peer_id = s.get_peer_id();

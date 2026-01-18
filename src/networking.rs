@@ -28,13 +28,16 @@ pub struct ZenohSession {
 
 impl ZenohSession {
     /// Create Zenoh networking client session (connects to server peer)
-    pub async fn create_client(game_id: GString) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn create_client(address: String, port: i32, game_id: GString) -> Result<Self, Box<dyn std::error::Error>> {
+        // Configure session to connect to the server router
+        let connect_endpoint = format!("tcp/{}:{}", address, port);
+        std::env::set_var("ZENOH_CONNECT", connect_endpoint);
+
         // Configure session with longer timeouts to prevent disconnections
         std::env::set_var("ZENOH_OPEN_TIMEOUT", "30000"); // 30 seconds
         std::env::set_var("ZENOH_CLOSE_TIMEOUT", "30000"); // 30 seconds
         std::env::set_var("ZENOH_KEEP_ALIVE", "10000"); // 10 seconds keepalive
 
-        // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
             Ok(sess) => Arc::new(sess),
@@ -66,7 +69,7 @@ impl ZenohSession {
         port: i32,
         game_id: GString,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Server becomes authoritative router using environment variable (like working approach)
+        // Server becomes authoritative router by listening on the specified port
         let listen_endpoint = format!("tcp/127.0.0.1:{}", port);
         std::env::set_var("ZENOH_LISTEN", listen_endpoint);
 
@@ -75,7 +78,6 @@ impl ZenohSession {
         std::env::set_var("ZENOH_CLOSE_TIMEOUT", "30000"); // 30 seconds
         std::env::set_var("ZENOH_KEEP_ALIVE", "10000"); // 10 seconds keepalive
 
-        // Use zenoh config approach
         let session_result = zenoh::open(zenoh::Config::default()).await;
         let session = match session_result {
             Ok(sess) => Arc::new(sess),
