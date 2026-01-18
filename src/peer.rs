@@ -721,7 +721,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn request_hlc_timestamp(&mut self) -> Error {
-        godot_print!("📡 Requesting HLC timestamp from Zenoh session");
+        godot_print!("Requesting HLC timestamp from Zenoh session");
 
         if let Some(bridge) = &self.async_bridge {
             if let Err(e) = bridge.send_command(ZenohCommand::GetHLCTimestamp) {

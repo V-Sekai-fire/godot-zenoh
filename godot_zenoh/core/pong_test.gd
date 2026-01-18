@@ -47,15 +47,15 @@ func _connect_to_network():
 
 	var client_result = zenoh_peer.create_client("localhost", 7447)
 	if client_result == 0:
-		label.text = "✅ Connected as CLIENT\nPeer: " + peer_id
+		label.text = "OK Connected as CLIENT\nPeer: " + peer_id
 		connected = true
 	else:
 		var server_result = zenoh_peer.create_server(7447, 32)
 		if server_result == 0:
-			label.text = "✅ Started as SERVER\nPeer: " + peer_id
+			label.text = "OK Started as SERVER\nPeer: " + peer_id
 			connected = true
 		else:
-			label.text = "❌ Connection failed"
+			label.text = "ERROR Connection failed"
 
 func _process(delta):
 	if zenoh_peer:

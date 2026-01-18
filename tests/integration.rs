@@ -15,7 +15,7 @@ mod networking_state_machine_tests {
         state = 2; // CONNECTED
         assert_eq!(state, 2);
 
-        println!("✅ Connection state transitions work");
+        println!("Connection state transitions work");
     }
 
     #[test]
@@ -39,6 +39,6 @@ mod networking_state_machine_tests {
         assert_eq!(processed_channels[1], 1); // Channel 1 processed second
         assert_eq!(processed_channels[2], 2); // Channel 2 processed third
 
-        println!("✅ Channel priority logic works");
+        println!("Channel priority logic works");
     }
 }
