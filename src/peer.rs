@@ -12,7 +12,6 @@ use std::thread;
 
 use crate::networking::{Packet, ZenohSession};
 use zenoh::time::Timestamp;
-use uhlc::{NTP64, ID};
 
 // Async command types for Zenoh operations
 #[derive(Debug)]

@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use zenoh::pubsub::Publisher;
 use zenoh::time::Timestamp;
-use uhlc::{NTP64, ID};
 
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
