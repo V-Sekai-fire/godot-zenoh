@@ -408,7 +408,7 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-            // godot_print!("DEBUG: No packets available - local queuing disabled");
+        // godot_print!("DEBUG: No packets available - local queuing disabled");
         PackedByteArray::new()
     }
 
@@ -461,7 +461,7 @@ impl ZenohMultiplayerPeer {
 
         // Set status to CONNECTING before attempting connection
         self.connection_status = 1; // CONNECTING
-        // godot_print!("Status set to CONNECTING");
+                                    // godot_print!("Status set to CONNECTING");
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
