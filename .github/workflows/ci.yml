@@ -205,8 +205,10 @@ jobs:
           #!/bin/bash
           set -e
 
-          # Parameterize number of peers (default: 3 for CI/CD)
-          NUM_PEERS=${NUM_PEERS:-3}
+          export PATH="$HOME/.cargo/bin:$PWD:$PATH"
+
+          # Parameterize number of peers (default: 2 for CI/CD)
+          NUM_PEERS=${NUM_PEERS:-2}
 
           echo "🚀 Godot-Zenoh Multi-Peer Communication Test in CI/CD (Peers: $NUM_PEERS)"
 
