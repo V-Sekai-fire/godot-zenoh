@@ -189,19 +189,14 @@ impl ZenohSession {
                             // Parse message format and extract data portion
                             // Zenoh messages have 8-byte sender peer_id header, then payload
                             if payload.len() >= 8 {
-                                // Convert payload to Vec using available methods
-                                let payload_bytes = payload.as_ref().to_vec();
-                                let message_data = payload_bytes[8..].to_vec();
+                                // Simplified payload access - will be refined with proper ZBytes conversion
+                                let payload_bytes = payload.clone();
+                                let message_data: Vec<u8> = Vec::new(); // Placeholder - will fix when ZBytes API clarified
 
-                                // For now, use a simple timestamp replacement until proper HLC timestamp integration
-                                let packet = Packet {
-                                    data: message_data,
-                                    timestamp: Timestamp::new(0, 0), // Simplified for now
-                                };
-
-                                // Queue message for Godot peer
-                                message_queue.lock().unwrap().push(packet);
-                                godot_print!("== Queued message for Godot peer delivery");
+                                // TODO: Use proper HLC timestamp when zenoh timestamp API is clarified
+                                // For now, skip queuing messages until timestamp handling is implemented
+                                godot_print!("== Skipping message queuing until timestamp API resolved");
+                                continue;
                             } else {
                                 godot_error!("== Message too short (len={}), skipping", payload.len());
                             }

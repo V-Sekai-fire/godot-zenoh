@@ -114,7 +114,7 @@ impl ZenohActor {
                 None
             }
             ZenohCommand::GetTimestamp => {
-                if let Some(sess) = &mut self.session {
+                if let Some(_sess) = &mut self.session {
                     // Get current time as nanoseconds for distributed linearizability testing
                     // NOTE: Proper HLC timestamp integration pending API clarification
                     let now_ns = std::time::SystemTime::now()
