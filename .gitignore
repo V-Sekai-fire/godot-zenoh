@@ -49,3 +49,9 @@ bin/*
 
 # Zenoh binaries (not part of the core HOL prevention implementation)
 zenoh.zip
+thirdparty/
+linux-install-1.11.1.1208.sh
+Godot_v4.4-stable_linux.x86_64
+godot_4.4.zip
+Godot.app/
+godot-4.4-stable-macos.zip

@@ -42,6 +42,9 @@ cat > quic_config.json5 << 'EOF'
         listen_private_key: "certs/key.pem"
       }
     }
+  },
+  timestamping: {
+    enabled: true
   }
 }
 EOF

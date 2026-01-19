@@ -73,13 +73,20 @@ func _on_test_timer():
                 
                 print("✓ All %d clients connected (phase 2 -> 3)" % NUM_CLIENTS)
                 
+                # FIXME: TEST ONLY VERIFIES SENDING, NOT RECEIVING!
+                # TODO: This test verifies put_packet_on_channel works but NEVER checks get_packet()
+                # TODO: CRITICAL MISSING: No test for actual multi-peer message exchange
+                # TODO: Linearizability test validates message reception, but this basic test ignores it
+                # FIXME: Network test incomplete - should verify multi-peer communication loop
+
                 # Phase 3: Test packet sending from each client
                 var test_data = PackedByteArray([1, 2, 3, 4, 5])
                 for i in range(client_peers.size()):
                     var send_result = client_peers[i].put_packet_on_channel(test_data, 0)
                     assert(send_result == OK, "Client %d packet send failed" % i)
-                
+
                 print("✓ All clients sent packets successfully (phase 3 -> 4)")
+                print("⚠️ WARNING: Test verified sending only - message reception not tested!")
                 
                 # Phase 4: Disconnect all
                 server_peer.disconnect()

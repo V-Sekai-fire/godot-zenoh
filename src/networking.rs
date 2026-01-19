@@ -9,17 +9,59 @@ use std::sync::{Arc, Mutex};
 use zenoh::pubsub::Publisher;
 use zenoh::time::Timestamp;
 
+/// Maximum allowed future timestamp offset for HLC leash (5 seconds in nanoseconds)
+/// Prevents excessive clock skew in distributed systems by clamping timestamps too far in the future
+/// Based on FoundationDB/CockroachDB: clamp rather than reject to preserve availability
+const HLC_MAX_FUTURE_OFFSET_NANOS: i64 = 5_000_000_000; // 5 seconds
+
+/// Validate HLC timestamp against leash bounds. Clamps future timestamps to prevent excessive skew.
+/// Based on FoundationDB approach: never reject, always clamp to maintain availability.
+/// Returns validated timestamp (may be clamped) and whether clamping occurred.
+/// Public for testing the leash enforcement in property tests.
+pub fn validate_hlc_timestamp(incoming: Timestamp, current: Timestamp) -> (Timestamp, bool) {
+    let incoming_nanos = incoming.get_time().as_nanos() as i64;
+    let current_nanos = current.get_time().as_nanos() as i64;
+
+    let offset = incoming_nanos - current_nanos;
+
+    if offset > HLC_MAX_FUTURE_OFFSET_NANOS {
+        // Clamp to maximum allowed future timestamp by reusing current ID
+        // FoundationDB approach: clamp rather than reject for availability
+        let _clamped_nanos = current_nanos + HLC_MAX_FUTURE_OFFSET_NANOS;
+        godot_print!(
+            "HLC LEASH: Would clamp future timestamp {}ns -> {}ns ({}s off) - peer ID: {}",
+            offset,
+            HLC_MAX_FUTURE_OFFSET_NANOS,
+            offset / 1_000_000_000,
+            incoming.get_id()
+        );
+
+        // For now, use current timestamp as clamped version (TODO: proper clamping)
+        // This ensures linearizability bounds are violated gracefully
+        (current, true) // Return current timestamp and flag that clamping occurred
+    } else {
+        (incoming, false) // Valid timestamp, no clamping
+    }
+}
+
 /// Zenoh-native packet using topic-based routing with channel-based priority
+/// Public for CLI testing and external validation
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known
     pub timestamp: Timestamp,
 }
 
+/// Message delivery callback type for bridging networking to peer layer
+pub type MessageCallback = Box<dyn Fn(PackedByteArray, i32, i32) + Send + Sync>;
+
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
 pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     publishers: Arc<Mutex<HashMap<String, Arc<Publisher<'static>>>>>,
+    subscribers_initialized: Arc<Mutex<std::collections::HashSet<String>>>,
+    message_queue: Arc<Mutex<Vec<Packet>>>,
+    message_callback: Option<Arc<MessageCallback>>, // FIXED: Callback to deliver messages to peer
     game_id: String,
     peer_id: i64,
 }
@@ -60,6 +102,9 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            message_queue: Arc::new(Mutex::new(Vec::new())),
+            message_callback: None,
             game_id,
             peer_id,
         })
@@ -103,9 +148,17 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            message_queue: Arc::new(Mutex::new(Vec::new())),
+            message_callback: None,
             game_id,
             peer_id,
         })
+    }
+
+    /// Set callback for message delivery to peer layer (FIXED: Critical message flow wiring)
+    pub fn set_message_callback(&mut self, callback: MessageCallback) {
+        self.message_callback = Some(Arc::new(callback));
     }
 
     /// Send packet on specific topic-based channel (async)
@@ -148,13 +201,124 @@ impl ZenohSession {
         let topic: &'static str =
             Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
 
+        godot_print!(
+            "DEBUG: Setting up channel {} with topic: {}",
+            channel,
+            topic
+        );
+
         // Setup publisher if not exists
         if !self.publishers.lock().unwrap().contains_key(topic) {
+            godot_print!("DEBUG: Creating publisher for topic {}", topic);
             let publisher = self.session.declare_publisher(topic).await?;
             self.publishers
                 .lock()
                 .unwrap()
                 .insert(topic.to_string(), Arc::new(publisher));
+            godot_print!("DEBUG: Publisher created successfully");
+        }
+
+        // Setup subscriber for bi-directional communication
+        if !self.subscribers_initialized.lock().unwrap().contains(topic) {
+            godot_print!("== Creating subscriber for topic {}", topic);
+            let subscriber = self.session.declare_subscriber(topic).await?;
+            godot_print!("== Subscriber created, setting up message forwarding");
+
+            // Get references for message delivery
+            let message_queue = self.message_queue.clone();
+            let message_callback = self.message_callback.as_ref().cloned(); // FIXED: Get callback for peer delivery
+            let sess = Arc::clone(&self.session);
+            let current_channel = channel; // Capture channel for delivery
+
+            // Spawn task to handle incoming messages and forward to Godot peer
+            tokio::spawn(async move {
+                let mut recv_counter = 0;
+                loop {
+                    match subscriber.recv_async().await {
+                        Ok(sample) => {
+                            recv_counter += 1;
+                            let payload = sample.payload();
+                            godot_print!(
+                                "== RECEIVED #{}: {} bytes on topic {}",
+                                recv_counter,
+                                payload.len(),
+                                &topic
+                            );
+
+                            // Parse message format and extract data portion
+                            // Zenoh messages have 8-byte sender peer_id header, then payload
+                            if payload.len() >= 8 {
+                                // Convert ZBytes to Vec<u8> for processing
+                                let payload_bytes = payload.to_bytes().to_vec();
+
+                                // Extract payload data after 8-byte peer_id header
+                                let message_data: Vec<u8> = payload_bytes[8..].to_vec();
+
+                                // Extract sender peer ID from header
+                                let sender_peer_bytes = &payload_bytes[0..8];
+                                let sender_peer_id = i64::from_le_bytes(
+                                    sender_peer_bytes.try_into().unwrap_or([0; 8]),
+                                );
+
+                                // HLC LEASH: Validate and clamp timestamp to prevent clock skew
+                                let incoming_timestamp = sample
+                                    .timestamp()
+                                    .copied()
+                                    .unwrap_or_else(|| sess.new_timestamp());
+                                let current_timestamp = sess.new_timestamp();
+                                let (validated_timestamp, _was_clamped) =
+                                    validate_hlc_timestamp(incoming_timestamp, current_timestamp);
+
+                                // FIXED: CRITICAL MESSAGE FLOW - Deliver to Godot peer via callback
+                                // This bridges the networking.rssubscriber -> peer.rs get_packet() pipeline
+                                if let Some(ref callback) = message_callback {
+                                    let godot_packet =
+                                        PackedByteArray::from(message_data.as_slice());
+                                    callback(godot_packet, current_channel, sender_peer_id as i32);
+                                    godot_print!(
+                                        "== DELIVERED: packet with {} data bytes from peer {} on channel {} to Godot peer",
+                                        message_data.len(),
+                                        sender_peer_id,
+                                        current_channel
+                                    );
+                                } else {
+                                    // Fallback to local queue if no callback set - use validated timestamp
+                                    let packet = Packet {
+                                        data: message_data.clone(),
+                                        timestamp: validated_timestamp,
+                                    };
+
+                                    {
+                                        let mut queue = message_queue.lock().unwrap();
+                                        queue.push(packet);
+                                    }
+
+                                    godot_print!(
+                                        "== QUEUED: packet with {} data bytes from peer {} queued locally (no callback)",
+                                        message_data.len(),
+                                        sender_peer_id
+                                    );
+                                }
+                            } else {
+                                godot_error!(
+                                    "== Message too short (len={}), skipping",
+                                    payload.len()
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            godot_error!("== Subscriber error on {}: {:?}", &topic, e);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            self.subscribers_initialized
+                .lock()
+                .unwrap()
+                .insert(topic.to_string());
+            godot_print!("== Subscriber setup complete for topic {}", topic);
         }
 
         Ok(())

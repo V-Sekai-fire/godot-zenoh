@@ -1,0 +1,73 @@
+repos:
+  # Basic pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        files: \.(rs|md|yaml|yml|toml)$
+      - id: end-of-file-fixer
+        files: \.(rs|md|yaml|yml|toml)$
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+
+  # Rust formatting and linting
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+      - id: clippy
+        args: [--all-targets]
+
+  # Markdown formatting
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.17
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm
+        args: [--wrap=88]
+
+  # Custom emoji checker
+  - repo: local
+    hooks:
+      - id: emoji-free-code
+        name: Check for prohibited emojis in code
+        entry: python3
+        language: system
+        files: \.(rs|md)$
+        pass_filenames: true
+        args:
+          - -c
+          - |
+            import sys
+            import os
+
+            prohibited_emojis = [
+                # Common emojis
+                '🌐', '🚀', '✅', '❌', '📊', '⚠️', '🛰️', '⏱️', '📡', '🎯',
+                '🏆', '🧮', '🔗', '📨', '💡', '🚀', '⚡', '🔥', '🎮', '🎯',
+                '📢', '⏱️', '📥', '📤', '👂', '🔌',
+                # Unicode mathematical operators (don't display on Windows)
+                '×', '÷', '√', '∑', '∏', '∆', '∇', '∂', '∫', '∮', '≈', '≠',
+                '≤', '≥', '∈', '∉', '⊂', '⊃', '∪', '∩', '∧', '∨', '¬', '∀', '∃',
+                # Unicode superscripts/subscripts and arrows
+                '²', '³', '¹', '⁰', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹', '₁', '₂', '₃', '₀',
+                '→', '←', '↑', '↓', '↔', '⇒', '⇐', '⇔', '⟨', '⟩', '⌊', '⌋', '⌈', '⌉',
+                # Unicode replacement character and box drawing chars
+                '\ufffd'
+            ]
+
+            for filepath in sys.argv[1:]:
+                if os.path.exists(filepath):
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    found_emojis = []
+                    for emoji in prohibited_emojis:
+                        if emoji in content:
+                            found_emojis.append(emoji)
+
+                    if found_emojis:
+                        print(f"ERROR: Found prohibited emojis in {filepath}: {', '.join(found_emojis)}")
+                        sys.exit(1)

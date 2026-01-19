@@ -12,9 +12,10 @@ use godot::global::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+type MessageQueue = Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>;
+
 use crate::networking::ZenohSession;
 
-#[derive(Debug)]
 enum ZenohCommand {
     CreateServer {
         port: i32,
@@ -28,23 +29,48 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
+
+    GetTimestamp,
+}
+
+impl std::fmt::Debug for ZenohCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ZenohCommand::CreateServer { port } => write!(f, "CreateServer {{ port: {} }}", port),
+            ZenohCommand::CreateClient { address, port } => write!(
+                f,
+                "CreateClient {{ address: \"{}\", port: {} }}",
+                address, port
+            ),
+            ZenohCommand::SendPacket { data, channel } => write!(
+                f,
+                "SendPacket {{ data: {} bytes, channel: {} }}",
+                data.len(),
+                channel
+            ),
+            ZenohCommand::GetTimestamp => write!(f, "GetTimestamp"),
+        }
+    }
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i64 },
     ConnectionFailed { error: String },
+    TimestampObtained { timestamp: i64 },
 }
 
 struct ZenohActor {
     session: Option<ZenohSession>,
     game_id: GodotString,
+    message_queue: MessageQueue,
 }
 
 impl ZenohActor {
-    fn new(game_id: GodotString) -> Self {
+    fn new(game_id: GodotString, message_queue: MessageQueue) -> Self {
         Self {
             session: None,
             game_id,
+            message_queue,
         }
     }
 
@@ -57,6 +83,16 @@ impl ZenohActor {
                         self.session = Some(s);
 
                         if let Some(sess) = &mut self.session {
+                            // FIXED: Set callback before setting up channels so subscribers use it
+                            let message_queue_clone = self.message_queue.clone();
+                            sess.set_message_callback(Box::new(
+                                move |packet: PackedByteArray, channel: i32, sender_peer: i32| {
+                                    let mut queue = message_queue_clone.lock().unwrap();
+                                    queue.push((packet.to_vec(), channel, sender_peer));
+                                },
+                            ));
+
+                            // FIXED: Setup channels - callback will be used by subscribers
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
@@ -84,6 +120,15 @@ impl ZenohActor {
                         self.session = Some(s);
 
                         if let Some(sess) = &mut self.session {
+                            // FIXED: Set callback before setting up channels so subscribers use it
+                            let message_queue_clone = self.message_queue.clone();
+                            sess.set_message_callback(Box::new(
+                                move |packet: PackedByteArray, channel: i32, sender_peer: i32| {
+                                    let mut queue = message_queue_clone.lock().unwrap();
+                                    queue.push((packet.to_vec(), channel, sender_peer));
+                                },
+                            ));
+
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
@@ -111,6 +156,17 @@ impl ZenohActor {
                 }
                 None
             }
+            ZenohCommand::GetTimestamp => {
+                if let Some(sess) = &mut self.session {
+                    // Use proper Zenoh HLC timestamp for distributed linearizability
+                    let hlc_timestamp = sess.get_timestamp();
+                    let nanos = hlc_timestamp.get_time().as_nanos() as i64;
+                    Some(ZenohStateUpdate::TimestampObtained { timestamp: nanos })
+                } else {
+                    // No HLC available - router disconnection, fail with panic
+                    panic!("No Zenoh session available for HLC timestamp - router disconnection");
+                }
+            }
         }
     }
 }
@@ -123,7 +179,7 @@ struct ZenohAsyncBridge {
 }
 
 impl ZenohAsyncBridge {
-    fn new(game_id: GodotString) -> Self {
+    fn new(game_id: GodotString, message_queue: MessageQueue) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
         let stop_flag = Arc::new(Mutex::new(false));
@@ -132,7 +188,7 @@ impl ZenohAsyncBridge {
         let event_queue_clone = Arc::clone(&event_queue);
         let stop_flag_clone = Arc::clone(&stop_flag);
 
-        let actor = ZenohActor::new(game_id);
+        let actor = ZenohActor::new(game_id, message_queue);
 
         let join_handle = thread::spawn(move || {
             let _ = Self::zenoh_worker_thread(
@@ -219,6 +275,11 @@ impl Drop for ZenohAsyncBridge {
 /// This struct provides a custom multiplayer peer that uses the Zenoh protocol
 /// for distributed communication between game clients. It extends Godot's
 /// MultiplayerPeerExtension to integrate with the high-level multiplayer API.
+///
+/// Based on proven zenoh-tetris multiplayer architecture:
+/// - Server publishes game state, subscribes to client actions
+/// - Clients subscribe to game state, publish actions
+/// - Topic hierarchy: godot/game/{game_id}/channel{NNN}
 #[derive(GodotClass)]
 #[class(base=MultiplayerPeerExtension, tool)]
 pub struct ZenohMultiplayerPeer {
@@ -237,6 +298,14 @@ pub struct ZenohMultiplayerPeer {
 
     zid: GodotString,
 
+    // Distributed timestamp from Zenoh HLC
+    current_timestamp: i64,
+
+    // FIXED: CRITICAL BUG - Message callback now properly wires networking.rs subscribers to peer.rs message_queue
+    // FIXED: MessageCallback set in ZenohActor.handle_command before channel setup so subscribers use the peer queue
+    // FIXED: Messages from ZenohSession subscribers now deliver directly to get_packet() via shared Arc message_queue
+    message_queue: MessageQueue,
+
     base: Base<MultiplayerPeerExtension>,
 }
 
@@ -253,11 +322,17 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
+            current_timestamp: 0,
+            message_queue: Arc::new(Mutex::new(Vec::new())),
             base: _base,
         }
     }
     fn get_available_packet_count(&self) -> i32 {
-        0
+        if let Ok(queue) = self.message_queue.try_lock() {
+            queue.len() as i32
+        } else {
+            0
+        }
     }
 
     fn get_max_packet_size(&self) -> i32 {
@@ -340,6 +415,11 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
+                    ZenohStateUpdate::TimestampObtained { timestamp } => {
+                        // Store the distributed HLC timestamp for linearizability testing
+                        self.current_timestamp = timestamp;
+                        godot_print!("HLC timestamp obtained: {}", timestamp);
+                    }
                 }
             }
         } else {
@@ -384,6 +464,26 @@ impl ZenohMultiplayerPeer {
     }
 
     #[func]
+    fn get_hlc_timestamp(&mut self) -> i64 {
+        if let Some(bridge) = &self.async_bridge {
+            // Request timestamp from Zenoh HLC via async bridge
+            if let Err(_e) = bridge.send_command(ZenohCommand::GetTimestamp) {
+                // Fail loudly if HLC unavailable - router disconnection issue
+                panic!("Failed to request HLC timestamp - router disconnection");
+            }
+
+            // Poll to update timestamp (this would ideally be event-driven)
+            self.poll();
+
+            // Return the distributed HLC timestamp
+            self.current_timestamp
+        } else {
+            // No bridge available - router disconnection, fail loudly
+            panic!("No network bridge available for HLC timestamp - router disconnection");
+        }
+    }
+
+    #[func]
     fn connection_status(&self) -> i32 {
         self.connection_status
     }
@@ -407,7 +507,22 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-        // godot_print!("DEBUG: No packets available - local queuing disabled");
+        if let Ok(mut queue) = self.message_queue.try_lock() {
+            if !queue.is_empty() {
+                let (data_vec, channel, peer_id) = queue.remove(0);
+                self.current_channel = channel;
+                self.current_packet_peer = peer_id;
+                godot_print!(
+                    "RECEIVED: packet with {} bytes on channel {}",
+                    data_vec.len(),
+                    channel
+                );
+                return PackedByteArray::from(data_vec);
+            }
+        }
+
+        // No packets available
+        godot_print!("RECEIVED: no packets available");
         PackedByteArray::new()
     }
 
@@ -465,7 +580,10 @@ impl ZenohMultiplayerPeer {
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             // godot_print!("Initializing async bridge for client");
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                self.game_id.clone(),
+                self.message_queue.clone(),
+            )));
         }
 
         // Send async command to create client
@@ -505,7 +623,10 @@ impl ZenohMultiplayerPeer {
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                self.game_id.clone(),
+                self.message_queue.clone(),
+            )));
         }
 
         // Send async command to create server
