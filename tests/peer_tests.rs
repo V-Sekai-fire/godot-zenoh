@@ -51,9 +51,12 @@ mod property_tests {
     use proptest::prelude::*;
     use super::*;
 
-    /// FIXME: Property - When packets are sent, they should eventually be receivable
-    /// FIXME: This currently FAILS due to the broken message delivery pipeline
-    /// FIXME: Message delivery considered INCOMPLETE WORK - not part of completed work
+    /// Property: When packets are sent, they should eventually be receivable
+    ///
+    /// Currently FAILS due to the broken message delivery pipeline.
+    /// Message delivery considered INCOMPLETE WORK - not part of completed work.
+    ///
+    /// FIXME: This property documents work that needs to be completed
     proptest! {
         #[test]
         fn prop_packets_are_deliverable(
@@ -99,8 +102,11 @@ mod property_tests {
         }
     }
 
-    /// FIXME: Property - Channel isolation: packets on different channels should be separate
-    /// FIXME: Currently fails due to overall broken message delivery (INCOMPLETE WORK)
+    /// Property: Channel isolation - packets on different channels should be separate
+    ///
+    /// Currently fails due to overall broken message delivery (INCOMPLETE WORK).
+    ///
+    /// FIXME: Test will verify proper channel isolation when message delivery is fixed
     proptest! {
         #[test]
         fn prop_channel_isolation(
@@ -157,9 +163,12 @@ mod property_tests {
         }
     }
 
-    /// FIXME: Property - Linearizability test simulation (formal verification property)
-    /// FIXME: This property would pass when the message delivery pipeline is fixed
-    /// FIXME: Currently demonstrates INCOMPLETE WORK due to broken multiplayer coordination
+    /// Property: Linearizability test simulation (formal verification property)
+    ///
+    /// This property would pass when the message delivery pipeline is fixed.
+    /// Currently demonstrates INCOMPLETE WORK due to broken multiplayer coordination.
+    ///
+    /// FIXME: Ultimate property that validates the entire multiplayer system's correctness
     proptest! {
         #[test]
         fn prop_linearizability_operations_ordered(
