@@ -28,11 +28,13 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
+    GetTimestamp,
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i64 },
     ConnectionFailed { error: String },
+    TimestampObtained { timestamp: i64 },
 }
 
 struct ZenohActor {
@@ -110,6 +112,17 @@ impl ZenohActor {
                         .await;
                 }
                 None
+            }
+            ZenohCommand::GetTimestamp => {
+                if let Some(sess) = &mut self.session {
+                    // Get timestamp as nanoseconds since epoch
+                    // This implements the HLC timestamp for distributed linearizability
+                    let timestamp = sess.get_hlc_timestamp();
+                    Some(ZenohStateUpdate::TimestampObtained { timestamp })
+                } else {
+                    // No HLC available - router disconnection, fail with panic
+                    panic!("No Zenoh session available for HLC timestamp - router disconnection");
+                }
             }
         }
     }
@@ -242,6 +255,9 @@ pub struct ZenohMultiplayerPeer {
 
     zid: GodotString,
 
+    // Distributed timestamp from Zenoh HLC
+    current_timestamp: i64,
+
     // Message reception queue - stores received packets from subscribers
     message_queue: Arc<Mutex<Vec<(PackedByteArray, i32, i32)>>>,
 
@@ -353,6 +369,11 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
+                    ZenohStateUpdate::TimestampObtained { timestamp } => {
+                        // Store the distributed HLC timestamp for linearizability testing
+                        self.current_timestamp = timestamp;
+                        godot_print!("HLC timestamp obtained: {}", timestamp);
+                    }
                 }
             }
         } else {
@@ -394,6 +415,26 @@ impl ZenohMultiplayerPeer {
     fn get_zid(&self) -> String {
         // godot_print!("get_zid() returning: '{}'", self.zid.to_string());
         self.zid.to_string()
+    }
+
+    #[func]
+    fn get_hlc_timestamp(&mut self) -> i64 {
+        if let Some(bridge) = &self.async_bridge {
+            // Request timestamp from Zenoh HLC via async bridge
+            if let Err(_e) = bridge.send_command(ZenohCommand::GetTimestamp) {
+                // Fail loudly if HLC unavailable - router disconnection issue
+                panic!("Failed to request HLC timestamp - router disconnection");
+            }
+
+            // Poll to update timestamp (this would ideally be event-driven)
+            self.poll();
+
+            // Return the distributed HLC timestamp
+            self.current_timestamp
+        } else {
+            // No bridge available - router disconnection, fail loudly
+            panic!("No network bridge available for HLC timestamp - router disconnection");
+        }
     }
 
     #[func]

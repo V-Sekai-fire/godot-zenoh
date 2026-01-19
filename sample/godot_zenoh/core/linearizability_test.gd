@@ -73,15 +73,17 @@ func _perform_consistency_operation(operation_id: int):
 		"read":
 			# Query current state
 			var value = await query_shared_state()
-			record_operation("read", value, operation_start, Time.get_ticks_usec())
-			print("📖 Peer", player_id, "read value:", value)
+			var hlc_timestamp = zenoh_peer.get_hlc_timestamp()
+			record_operation("read", value, hlc_timestamp)
+			print("📖 Peer", player_id, "read value:", value, "at HLC:", hlc_timestamp)
 
 		"write":
 			# Modify shared state atomically
 			var success = await modify_shared_state(1)
 			if success:
-				record_operation("write", shared_counter, operation_start, Time.get_ticks_usec())
-				print("✏️ Peer", player_id, "wrote to:", shared_counter)
+				var hlc_timestamp = zenoh_peer.get_hlc_timestamp()
+				record_operation("write", shared_counter, hlc_timestamp)
+				print("✏️ Peer", player_id, "wrote to:", shared_counter, "at HLC:", hlc_timestamp)
 			else:
 				print("❌ Peer", player_id, "write failed (not committed)")
 
@@ -123,13 +125,13 @@ func broadcast_state_update(new_value: int):
 	var data = json_str.to_utf8_buffer()
 	zenoh_peer.put_packet(data)
 
-func record_operation(type: String, value: int, start_us: int, end_us: int):
+func record_operation(type: String, value: int, operation_timestamp: int):
+	# Use HLC timestamp for distributed linearizability
 	operations.append({
 		"peer_id": player_id,
 		"type": type,
 		"value": value,
-		"start_time": start_us,
-		"end_time": end_us
+		"hlc_timestamp": operation_timestamp
 	})
 
 func _process(delta: float):
@@ -169,35 +171,30 @@ func _analyze_consistency():
 	print("Operations recorded:", operations.size())
 
 	if operations.is_empty():
-		test_completed.emit(false, 0, "No operations performed - coordinate?ation failed")
+		test_completed.emit(false, 0, "No operations performed - coordination failed")
 		return
 
-	# Analyze read-write consistency
+	# Sort all operations by HLC timestamp to create a total order
+	operations.sort_custom(func(a, b): return a.hlc_timestamp < b.hlc_timestamp)
+
 	var violations = 0
-	var writes_in_order = []
+	var expected_state = 0
 
-	# Extract write operations for comparison
+	print("🔄 Operation sequence (HLC-ordered):")
 	for op in operations:
-		if op["type"] == "write":
-			writes_in_order.append(op)
-			print("🔍 Write operation: Peer", op["peer_id"], "→", op["value"])
+		print("  Peer", op.peer_id, op.type, "=", op.value, "at HLC:", op.hlc_timestamp)
 
-	# Validate read consistency
+	# Validate linearizability: all reads should see a consistent state
+	# that could have been produced by some serialization of writes
 	for op in operations:
-		if op["type"] == "read":
-			var read_value = op["value"]
-			var latest_write_before_read = -1
-
-			# Find the write operation that should have happened before this read
-			for write_op in writes_in_order:
-				if write_op["end_time"] < op["start_time"]:
-					latest_write_before_read = write_op["value"]
-				elif write_op["start_time"] > op["end_time"]:
-					break  # No more writes before this read
-
-			if read_value < latest_write_before_read:
+		if op.type == "read":
+			var read_value = op.value
+			if read_value < expected_state:
 				violations += 1
-				print("🚨 VIOLATION: Read", read_value, "should be at least", latest_write_before_read)
+				print("🚨 VIOLATION: Read", read_value, "should be at least", expected_state, "at HLC:", op.hlc_timestamp)
+		elif op.type == "write":
+			expected_state = op.value  # Update expected state for following reads
+			print("✓ Write", op.value, "committed at HLC:", op.hlc_timestamp)
 
 	print("🎯 Reads validated:", operations.filter(func(op): return op["type"] == "read").size())
 	print("✏️ Writes performed:", operations.filter(func(op): return op["type"] == "write").size())
@@ -206,10 +203,10 @@ func _analyze_consistency():
 
 	if violations == 0:
 		print("✅ RESULT: LINEARIZABLE - Distributed operations consistent")
-		test_completed.emit(true, violations, "Linearizability validated - Zenoh peers maintain distributed consistency")
+		test_completed.emit(true, violations, "Linearizability validated - Zenoh HLC timestamps ensure distributed consistency")
 	else:
 		print("❌ RESULT: NOT LINEARIZABLE - Distributed operations inconsistent")
-		test_completed.emit(false, violations, "Linearizability violated - Zenoh peers lack distributed coordination")
+		test_completed.emit(false, violations, "Linearizability violated - Zenoh peers lack HLC timestamp coordination")
 
 func _notification(what):
 	if what == NOTIFICATION_EXIT_TREE:
