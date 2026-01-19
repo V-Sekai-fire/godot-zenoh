@@ -450,5 +450,3 @@ impl TestZenohMultiplayerPeer {
         self.queued_packets.push((data, channel, peer_id));
     }
 }
-
-
