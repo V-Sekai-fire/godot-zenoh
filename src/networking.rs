@@ -154,7 +154,11 @@ impl ZenohSession {
         let topic: &'static str =
             Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
 
-        godot_print!("DEBUG: Setting up channel {} with topic: {}", channel, topic);
+        godot_print!(
+            "DEBUG: Setting up channel {} with topic: {}",
+            channel,
+            topic
+        );
 
         // Setup publisher if not exists
         if !self.publishers.lock().unwrap().contains_key(topic) {
@@ -187,7 +191,12 @@ impl ZenohSession {
                         Ok(sample) => {
                             recv_counter += 1;
                             let payload = sample.payload();
-                            godot_print!("== RECEIVED #{}: {} bytes on topic {}", recv_counter, payload.len(), &topic);
+                            godot_print!(
+                                "== RECEIVED #{}: {} bytes on topic {}",
+                                recv_counter,
+                                payload.len(),
+                                &topic
+                            );
 
                             // Parse message format and extract data portion
                             // Zenoh messages have 8-byte sender peer_id header, then payload
@@ -199,11 +208,12 @@ impl ZenohSession {
                                 let message_data: Vec<u8> = payload_bytes[8..].to_vec();
 
                                 // Use message timestamp if available, otherwise generate fresh HLC timestamp
-                                let packet_timestamp = if let Some(msg_timestamp) = sample.timestamp() {
-                                    *msg_timestamp
-                                } else {
-                                    sess.new_timestamp()
-                                };
+                                let packet_timestamp =
+                                    if let Some(msg_timestamp) = sample.timestamp() {
+                                        *msg_timestamp
+                                    } else {
+                                        sess.new_timestamp()
+                                    };
 
                                 let packet_data_len = message_data.len();
 
@@ -218,9 +228,15 @@ impl ZenohSession {
                                     queue.push(packet);
                                 }
 
-                                godot_print!("== QUEUED: packet with {} data bytes queued", packet_data_len);
+                                godot_print!(
+                                    "== QUEUED: packet with {} data bytes queued",
+                                    packet_data_len
+                                );
                             } else {
-                                godot_error!("== Message too short (len={}), skipping", payload.len());
+                                godot_error!(
+                                    "== Message too short (len={}), skipping",
+                                    payload.len()
+                                );
                             }
                         }
                         Err(e) => {
@@ -231,7 +247,10 @@ impl ZenohSession {
                 }
             });
 
-            self.subscribers_initialized.lock().unwrap().insert(topic.to_string());
+            self.subscribers_initialized
+                .lock()
+                .unwrap()
+                .insert(topic.to_string());
             godot_print!("== Subscriber setup complete for topic {}", topic);
         }
 

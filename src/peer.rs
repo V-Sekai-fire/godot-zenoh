@@ -467,7 +467,11 @@ impl ZenohMultiplayerPeer {
                 let (data, channel, peer_id) = queue.remove(0);
                 self.current_channel = channel;
                 self.current_packet_peer = peer_id;
-                godot_print!("RECEIVED: packet with {} bytes on channel {}", data.len(), channel);
+                godot_print!(
+                    "RECEIVED: packet with {} bytes on channel {}",
+                    data.len(),
+                    channel
+                );
                 return data;
             }
         }
