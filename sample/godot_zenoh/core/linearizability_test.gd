@@ -88,19 +88,24 @@ func _perform_consistency_operation(operation_id: int):
 				print("❌ Peer", player_id, "write failed (not committed)")
 
 func query_shared_state() -> int:
+	# FIXME: This is MOCK IMPLEMENTATION - No real cross-peer coordination!
+	# TODO: This test assumes multi-peer coordination works, but messages don't flow between peers
+	# TODO: Actual Zenoh multiplayer communication is BROKEN - subscribe.receive() -> get_packet() delivery pipeline missing
+	# TODO: Linearizability validation fails because peers operate in complete isolation
 	# Server can read directly
 	if is_server:
 		return shared_counter
 
-	# Clients query server
+	# FIXME: Client puts packet but server NEVER RECEIVES IT due to broken message flow
+	# TODO: Need to fix ZenohSession -> ZenohMultiplayerPeer message delivery connection
 	var request = {"type": "QUERY_SERVICE", "peer_id": player_id}
 	var json_str = JSON.stringify(request)
 	var data = json_str.to_utf8_buffer()
 	zenoh_peer.put_packet(data)
 
-	# Wait for response (in real implementation, properly handle async)
+	# FIXME: Mock wait - real implementation would receive server response packet
 	await get_tree().create_timer(0.1).timeout
-	return shared_counter  # Mock response - real implementation needs proper response handling
+	return shared_counter  # Mock response - MOUTH REAL multiplayer coordination broken!
 
 func modify_shared_state(delta: int) -> bool:
 	if is_server:

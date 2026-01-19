@@ -207,6 +207,12 @@ impl ZenohSession {
                                 // Extract payload data after 8-byte peer_id header
                                 let message_data: Vec<u8> = payload_bytes[8..].to_vec();
 
+                                // Extract sender peer ID from header
+                                let sender_peer_bytes = &payload_bytes[0..8];
+                                let sender_peer_id = i64::from_le_bytes(
+                                    sender_peer_bytes.try_into().unwrap_or([0; 8]),
+                                );
+
                                 // Use message timestamp if available, otherwise generate fresh HLC timestamp
                                 let packet_timestamp =
                                     if let Some(msg_timestamp) = sample.timestamp() {
@@ -218,19 +224,23 @@ impl ZenohSession {
                                 let packet_data_len = message_data.len();
 
                                 let packet = Packet {
-                                    data: message_data,
+                                    data: message_data.clone(),
                                     timestamp: packet_timestamp,
                                 };
 
-                                // Queue packet for Godot delivery
+                                // TODO: CRITICAL FIX NEEDED - This queues messages in ZenohSession.message_queue
+                                // TODO: But Godot's get_packet() method checks ZenohMultiplayerPeer.message_queue
+                                // TODO: Messages NEVER reach Godot peer! Need to wire this delivery pipe.
+                                // FIXME: Create a callback mechanism to deliver packets from networking peer layer
                                 {
                                     let mut queue = message_queue.lock().unwrap();
                                     queue.push(packet);
                                 }
 
                                 godot_print!(
-                                    "== QUEUED: packet with {} data bytes queued",
-                                    packet_data_len
+                                    "== QUEUED: packet with {} data bytes from peer {} queued",
+                                    packet_data_len,
+                                    sender_peer_id
                                 );
                             } else {
                                 godot_error!(

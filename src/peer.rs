@@ -258,7 +258,11 @@ pub struct ZenohMultiplayerPeer {
     // Distributed timestamp from Zenoh HLC
     current_timestamp: i64,
 
-    // Message reception queue - stores received packets from subscribers
+    // FIXME: CRITICAL BUG - Message reception queue gets NO messages!
+    // TODO: Subscribers in networking.rs queue messages locally but they NEVER reach here.
+    // TODO: The ZenohSession.message_queue (networking.rs) != ZenohMultiplayerPeer.message_queue (peer.rs)
+    // TODO: Messages are stuck in networking.rs and don't deliver to Godot's get_packet() API.
+    // TODO: Need to wire received packets from ZenohSession ZenohMultiplayerPeer message delivery.
     message_queue: Arc<Mutex<Vec<(PackedByteArray, i32, i32)>>>,
 
     base: Base<MultiplayerPeerExtension>,
