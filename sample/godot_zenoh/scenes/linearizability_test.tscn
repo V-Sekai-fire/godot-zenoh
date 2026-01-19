@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://linearizability_test"]
+
+[ext_resource type="Script" path="res://godot_zenoh/core/linearizability_test.gd" id="linearizability_test"]
+
+[node name="LinearizabilityTest" type="Node"]
+script = ExtResource("linearizability_test")

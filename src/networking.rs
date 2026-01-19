@@ -20,6 +20,7 @@ pub struct Packet {
 pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     publishers: Arc<Mutex<HashMap<String, Arc<Publisher<'static>>>>>,
+    subscribers_initialized: Arc<Mutex<std::collections::HashSet<String>>>,
     game_id: String,
     peer_id: i64,
 }
@@ -60,6 +61,7 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
             game_id,
             peer_id,
         })
@@ -103,6 +105,7 @@ impl ZenohSession {
         Ok(ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
             game_id,
             peer_id,
         })
@@ -148,13 +151,67 @@ impl ZenohSession {
         let topic: &'static str =
             Box::leak(format!("godot/game/{}/channel{:03}", game_id, channel).into_boxed_str());
 
+        godot_print!("DEBUG: Setting up channel {} with topic: {}", channel, topic);
+
         // Setup publisher if not exists
         if !self.publishers.lock().unwrap().contains_key(topic) {
+            godot_print!("DEBUG: Creating publisher for topic {}", topic);
             let publisher = self.session.declare_publisher(topic).await?;
             self.publishers
                 .lock()
                 .unwrap()
                 .insert(topic.to_string(), Arc::new(publisher));
+            godot_print!("DEBUG: Publisher created successfully");
+        }
+
+        // Setup subscriber for bi-directional communication
+        if !self.subscribers_initialized.lock().unwrap().contains(topic) {
+            godot_print!("=' Creating subscriber for topic {}", topic);
+            let subscriber = self.session.declare_subscriber(topic).await?;
+            godot_print!("=á Subscriber created, setting up message forwarding");
+
+            // Get reference to message queue for delivery
+            let message_queue = self.message_queue.clone();
+
+            // Spawn task to handle incoming messages and forward to Godot peer
+            tokio::spawn(async move {
+                let mut recv_counter = 0;
+                loop {
+                    match subscriber.recv_async().await {
+                        Ok(sample) => {
+                            recv_counter += 1;
+                            let payload = sample.payload();
+                            godot_print!("=è RECEIVED #{}, {} bytes on topic {}", recv_counter, payload.len(), &topic);
+
+                            // Parse message format and extract data portion
+                            // Zenoh messages have 8-byte sender peer_id header, then payload
+                            if payload.len() >= 8 {
+                                // Extract data (skip peer_id header)
+                                let message_data = payload.slice(8..);
+
+                                // Create Packet for Godot
+                                let packet = Packet {
+                                    data: message_data.to_vec(),
+                                    timestamp: sample.timestamp().unwrap_or_default(),
+                                };
+
+                                // Queue message for Godot peer
+                                message_queue.lock().unwrap().push(packet);
+                                godot_print!(" Queued message for Godot peer delivery");
+                            } else {
+                                godot_error!("L Message too short (len={}), skipping", payload.len());
+                            }
+                        }
+                        Err(e) => {
+                            godot_error!("L Subscriber error on {}: {:?}", &topic, e);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            self.subscribers_initialized.lock().unwrap().insert(topic.to_string());
+            godot_print!(" Subscriber setup complete for topic {}", topic);
         }
 
         Ok(())

@@ -219,6 +219,11 @@ impl Drop for ZenohAsyncBridge {
 /// This struct provides a custom multiplayer peer that uses the Zenoh protocol
 /// for distributed communication between game clients. It extends Godot's
 /// MultiplayerPeerExtension to integrate with the high-level multiplayer API.
+///
+/// Based on proven zenoh-tetris multiplayer architecture:
+/// - Server publishes game state, subscribes to client actions
+/// - Clients subscribe to game state, publish actions
+/// - Topic hierarchy: godot/game/{game_id}/channel{NNN}
 #[derive(GodotClass)]
 #[class(base=MultiplayerPeerExtension, tool)]
 pub struct ZenohMultiplayerPeer {
@@ -237,6 +242,9 @@ pub struct ZenohMultiplayerPeer {
 
     zid: GodotString,
 
+    // Message reception queue - stores received packets from subscribers
+    message_queue: Arc<Mutex<Vec<(PackedByteArray, i32, i32)>>>,
+
     base: Base<MultiplayerPeerExtension>,
 }
 
@@ -253,11 +261,16 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
+            message_queue: Arc::new(Mutex::new(Vec::new())),
             base: _base,
         }
     }
     fn get_available_packet_count(&self) -> i32 {
-        0
+        if let Ok(queue) = self.message_queue.try_lock() {
+            queue.len() as i32
+        } else {
+            0
+        }
     }
 
     fn get_max_packet_size(&self) -> i32 {
@@ -407,7 +420,18 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-        // godot_print!("DEBUG: No packets available - local queuing disabled");
+        if let Ok(mut queue) = self.message_queue.try_lock() {
+            if !queue.is_empty() {
+                let (data, channel, peer_id) = queue.remove(0);
+                self.current_channel = channel;
+                self.current_packet_peer = peer_id;
+                godot_print!("RECEIVED: packet with {} bytes on channel {}", data.len(), channel);
+                return data;
+            }
+        }
+
+        // No packets available
+        godot_print!("RECEIVED: no packets available");
         PackedByteArray::new()
     }
 
