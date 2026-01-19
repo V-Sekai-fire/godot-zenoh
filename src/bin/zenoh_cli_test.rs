@@ -51,12 +51,16 @@ fn main() {
 
 
 
+            let increments_per_client = 5;
+            let fixed_clients = 3;
+            let expected_final_counter = fixed_clients * increments_per_client;
+
             println!("Mars HLC Counter Test");
             println!("Configuration:");
-            println!("   Target Clients: 3");
-            println!("   Read-Increment Cycles per Client: 5");
+            println!("   Target Clients: {}", fixed_clients);
+            println!("   Read-Increment Cycles per Client: {}", increments_per_client);
             println!("   Test Duration: {} seconds", duration_secs);
-            println!("   Expected Final Counter: 15");
+            println!("   Expected Final Counter: {}", expected_final_counter);
             println!("   Backend Mode: HLC-based Linearizable Counter with Reads");
             calculate_quorum_requirements(num_clients);
 
@@ -84,7 +88,7 @@ fn main() {
             for client_id in 0..effective_clients {
                 let client_metrics = mars_metrics.clone();
                 let task = tokio::spawn(async move {
-                    mars_client_simulation(client_id as u64, duration_secs, client_metrics).await;
+                    mars_client_simulation(client_id as u64, duration_secs, expected_final_counter, client_metrics).await;
                 });
                 client_tasks.push(task);
             }
@@ -125,14 +129,14 @@ fn main() {
             println!("   Increments Sent: {}", increments_sent);
             println!("   Counter Updates Received: {}", counter_updates_received);
             println!("   Final Counter Value: {}", final_counter);
-            println!("   Expected Counter Value: 15");
+            println!("   Expected Counter Value: {}", expected_final_counter);
             println!("   Test Errors: {}", total_errors);
             println!();
 
             // Calculate success metrics based on final counter value
-            let total_success_rate = if final_counter == 15 && total_errors == 0 {
+            let total_success_rate = if final_counter == expected_final_counter && total_errors == 0 {
                 100.0
-            } else if final_counter >= 10 {
+            } else if final_counter >= expected_final_counter.saturating_sub(fixed_clients) {
                 80.0
             } else {
                 0.0
@@ -140,10 +144,10 @@ fn main() {
 
             println!("HLC Ordering Results:");
             println!("   Global Order Correctness: {}",
-                if final_counter == 15 { "VERIFIED" } else { "FAILED" });
+                if final_counter == expected_final_counter { "VERIFIED" } else { "FAILED" });
             println!("   Total Increments Applied Globally: {}", final_counter);
             println!("   Distributed Consistency: {}",
-                if final_counter == 15 { "ACHIEVED" } else { "VIOLATED" });
+                if final_counter == expected_final_counter { "ACHIEVED" } else { "VIOLATED" });
             println!("   Test Success Rate: {:.0}%", total_success_rate);
             println!();
 
@@ -159,7 +163,7 @@ fn main() {
             if total_success_rate >= 95.0 {
                 println!("   ████████████████████ 100% - MISSION ACCOMPLISHED");
                 println!("   HLC-based distributed counter working perfectly!");
-                println!("   All 15 increments applied in global order (3 clients * 5 increments)");
+                println!("   All {} increments applied in global order ({} clients * {} increments)", expected_final_counter, fixed_clients, increments_per_client);
                 println!("   Global ordering established despite concurrent operations");
                 println!("   Distributed consistency achieved");
             } else if total_success_rate >= 80.0 {
@@ -299,6 +303,7 @@ fn main() {
         async fn mars_client_simulation(
             client_id: u64,
             _duration_secs: i64,
+            expected_final_counter: usize,
             mars_metrics: MarsMetricsCollector,
         ) {
             match zenoh::open(zenoh::Config::default()).await {
@@ -369,10 +374,10 @@ fn main() {
                             }
                             Err(_) => {
                                 // Timeout - check if we have received final counter
-                                if last_counter == 15 {
+                                if last_counter == expected_final_counter {
                                     break;
                                 }
-                                // Continue waiting if not yet 15
+                                // Continue waiting if not yet expected_final_counter
                             }
                         }
                     }
