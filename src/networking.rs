@@ -176,6 +176,9 @@ impl ZenohSession {
             // Get reference to message queue for delivery
             let message_queue = self.message_queue.clone();
 
+            // Get reference to session for timestamp generation
+            let sess = Arc::clone(&self.session);
+
             // Spawn task to handle incoming messages and forward to Godot peer
             tokio::spawn(async move {
                 let mut recv_counter = 0;
@@ -189,14 +192,33 @@ impl ZenohSession {
                             // Parse message format and extract data portion
                             // Zenoh messages have 8-byte sender peer_id header, then payload
                             if payload.len() >= 8 {
-                                // Simplified payload access - will be refined with proper ZBytes conversion
-                                let payload_bytes = payload.clone();
-                                let message_data: Vec<u8> = Vec::new(); // Placeholder - will fix when ZBytes API clarified
+                                // Convert ZBytes to Vec<u8> for processing
+                                let payload_bytes = payload.to_bytes().to_vec();
 
-                                // TODO: Use proper HLC timestamp when zenoh timestamp API is clarified
-                                // For now, skip queuing messages until timestamp handling is implemented
-                                godot_print!("== Skipping message queuing until timestamp API resolved");
-                                continue;
+                                // Extract payload data after 8-byte peer_id header
+                                let message_data: Vec<u8> = payload_bytes[8..].to_vec();
+
+                                // Use message timestamp if available, otherwise generate fresh HLC timestamp
+                                let packet_timestamp = if let Some(msg_timestamp) = sample.timestamp() {
+                                    *msg_timestamp
+                                } else {
+                                    sess.new_timestamp()
+                                };
+
+                                let packet_data_len = message_data.len();
+
+                                let packet = Packet {
+                                    data: message_data,
+                                    timestamp: packet_timestamp,
+                                };
+
+                                // Queue packet for Godot delivery
+                                {
+                                    let mut queue = message_queue.lock().unwrap();
+                                    queue.push(packet);
+                                }
+
+                                godot_print!("== QUEUED: packet with {} data bytes queued", packet_data_len);
                             } else {
                                 godot_error!("== Message too short (len={}), skipping", payload.len());
                             }

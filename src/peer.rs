@@ -114,17 +114,14 @@ impl ZenohActor {
                 None
             }
             ZenohCommand::GetTimestamp => {
-                if let Some(_sess) = &mut self.session {
-                    // Get current time as nanoseconds for distributed linearizability testing
-                    // NOTE: Proper HLC timestamp integration pending API clarification
-                    let now_ns = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as i64;
-                    Some(ZenohStateUpdate::TimestampObtained { timestamp: now_ns })
+                if let Some(sess) = &mut self.session {
+                    // Use proper Zenoh HLC timestamp for distributed linearizability
+                    let hlc_timestamp = sess.get_timestamp();
+                    let nanos = hlc_timestamp.get_time().as_nanos() as i64;
+                    Some(ZenohStateUpdate::TimestampObtained { timestamp: nanos })
                 } else {
                     // No HLC available - router disconnection, fail with panic
-                    panic!("No Zenoh session available for timestamp - router disconnection");
+                    panic!("No Zenoh session available for HLC timestamp - router disconnection");
                 }
             }
         }
