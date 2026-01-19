@@ -12,7 +12,7 @@ use godot::global::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::networking::ZenohSession;
+use crate::networking::{MessageCallback, ZenohSession};
 
 enum ZenohCommand {
     CreateServer {
@@ -60,13 +60,15 @@ enum ZenohStateUpdate {
 struct ZenohActor {
     session: Option<ZenohSession>,
     game_id: GodotString,
+    message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>,
 }
 
 impl ZenohActor {
-    fn new(game_id: GodotString) -> Self {
+    fn new(game_id: GodotString, message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>) -> Self {
         Self {
             session: None,
             game_id,
+            message_queue,
         }
     }
 
@@ -79,7 +81,16 @@ impl ZenohActor {
                         self.session = Some(s);
 
                         if let Some(sess) = &mut self.session {
-                            // FIXED: Setup channels - callback will be set from peer layer
+                            // FIXED: Set callback before setting up channels so subscribers use it
+                            let message_queue_clone = self.message_queue.clone();
+                            sess.set_message_callback(Box::new(
+                                move |packet: PackedByteArray, channel: i32, sender_peer: i32| {
+                                    let mut queue = message_queue_clone.lock().unwrap();
+                                    queue.push((packet.to_vec(), channel, sender_peer));
+                                },
+                            ));
+
+                            // FIXED: Setup channels - callback will be used by subscribers
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
@@ -90,9 +101,6 @@ impl ZenohActor {
                                     });
                                 }
                             }
-
-                            // FIXME: Message callback will be set from peer layer after connection
-                            // TODO: Need to set callback that delivers from networking to peer queue
                         }
 
                         Some(ZenohStateUpdate::ServerCreated { zid })
@@ -110,6 +118,15 @@ impl ZenohActor {
                         self.session = Some(s);
 
                         if let Some(sess) = &mut self.session {
+                            // FIXED: Set callback before setting up channels so subscribers use it
+                            let message_queue_clone = self.message_queue.clone();
+                            sess.set_message_callback(Box::new(
+                                move |packet: PackedByteArray, channel: i32, sender_peer: i32| {
+                                    let mut queue = message_queue_clone.lock().unwrap();
+                                    queue.push((packet.to_vec(), channel, sender_peer));
+                                },
+                            ));
+
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
@@ -160,7 +177,7 @@ struct ZenohAsyncBridge {
 }
 
 impl ZenohAsyncBridge {
-    fn new(game_id: GodotString) -> Self {
+    fn new(game_id: GodotString, message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
         let stop_flag = Arc::new(Mutex::new(false));
@@ -169,7 +186,7 @@ impl ZenohAsyncBridge {
         let event_queue_clone = Arc::clone(&event_queue);
         let stop_flag_clone = Arc::clone(&stop_flag);
 
-        let actor = ZenohActor::new(game_id);
+        let actor = ZenohActor::new(game_id, message_queue);
 
         let join_handle = thread::spawn(move || {
             let _ = Self::zenoh_worker_thread(
@@ -282,12 +299,10 @@ pub struct ZenohMultiplayerPeer {
     // Distributed timestamp from Zenoh HLC
     current_timestamp: i64,
 
-    // FIXME: CRITICAL BUG - Message reception queue gets NO messages!
-    // TODO: Subscribers in networking.rs queue messages locally but they NEVER reach here.
-    // TODO: The ZenohSession.message_queue (networking.rs) != ZenohMultiplayerPeer.message_queue (peer.rs)
-    // TODO: Messages are stuck in networking.rs and don't deliver to Godot's get_packet() API.
-    // TODO: Need to wire received packets from ZenohSession ZenohMultiplayerPeer message delivery.
-    message_queue: Arc<Mutex<Vec<(PackedByteArray, i32, i32)>>>,
+    // FIXED: CRITICAL BUG - Message callback now properly wires networking.rs subscribers to peer.rs message_queue
+    // FIXED: MessageCallback set in ZenohActor.handle_command before channel setup so subscribers use the peer queue
+    // FIXED: Messages from ZenohSession subscribers now deliver directly to get_packet() via shared Arc message_queue
+    message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -492,15 +507,15 @@ impl ZenohMultiplayerPeer {
     fn get_packet(&mut self) -> PackedByteArray {
         if let Ok(mut queue) = self.message_queue.try_lock() {
             if !queue.is_empty() {
-                let (data, channel, peer_id) = queue.remove(0);
+                let (data_vec, channel, peer_id) = queue.remove(0);
                 self.current_channel = channel;
                 self.current_packet_peer = peer_id;
                 godot_print!(
                     "RECEIVED: packet with {} bytes on channel {}",
-                    data.len(),
+                    data_vec.len(),
                     channel
                 );
-                return data;
+                return PackedByteArray::from(data_vec);
             }
         }
 
@@ -563,7 +578,10 @@ impl ZenohMultiplayerPeer {
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
             // godot_print!("Initializing async bridge for client");
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                self.game_id.clone(),
+                self.message_queue.clone(),
+            )));
         }
 
         // Send async command to create client
@@ -603,7 +621,10 @@ impl ZenohMultiplayerPeer {
 
         // Initialize async bridge if not exists
         if self.async_bridge.is_none() {
-            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(self.game_id.clone())));
+            self.async_bridge = Some(Box::new(ZenohAsyncBridge::new(
+                self.game_id.clone(),
+                self.message_queue.clone(),
+            )));
         }
 
         // Send async command to create server
