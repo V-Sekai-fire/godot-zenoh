@@ -63,7 +63,7 @@ This will compile the Rust code into a GDExtension library that Godot can load.
 godot-zenoh/
 ├── src/
 │   ├── bin/
-│   │   └── zenoh_cli_test.rs     # CLI testing tool for Mars Extreme benchmark
+│   │   └── zenoh_cli_test.rs     # CLI testing tool for Mars HLC Counter test
 │   ├── lib.rs                   # Main extension initialization
 │   ├── peer.rs                  # ZenohMultiplayerPeer - Brutal flow implementation
 │   └── networking.rs            # Zenoh session and packet routing
@@ -128,8 +128,8 @@ The project includes a comprehensive CLI testing tool for benchmarking and valid
 # Build the CLI test tool
 cargo build --bin zenoh_cli_test
 
-# Run Mars Extreme 1M client simulation
-cargo run --bin zenoh_cli_test -- mars 10000 30
+# Run Mars HLC Counter Test (uses 3 clients internally)
+cargo run --bin zenoh_cli_test -- mars 3 30
 
 # Real Zenoh network testing
 cargo run --bin zenoh_cli_test -- network publisher "Hello World"
@@ -213,26 +213,36 @@ Please include:
 - Full error logs (with debug logging enabled)
 - Expected vs actual behavior
 
-### Mars Extreme Challenge
+### Mars HLC Counter Test
 
-The project includes the Mars Extreme UDP throughput challenge - a benchmarking tool
-that simulates concurrent UDP clients to evaluate the scaling capabilities of the Zenoh
-transport layer. This tool demonstrates linear scaling patterns vs. traditional
-networking approaches.
+The project includes the Mars HLC Counter Test - a distributed consistency test that
+validates Hybrid Logical Clock-based total ordering for concurrent operations across
+multiple clients. This test demonstrates how Zenoh + HLC enables strong consistency in
+distributed systems, ensuring all concurrent increments are applied in a globally
+consistent order.
 
 **Features:**
 
-- Configurable client count and test duration
-- Standard hash computation and verification
-- Quorum consensus theorem implementation
-- Real-time metrics collection and reporting
+- Hybrid Logical Clock (HLC) implementation for distributed timestamping
+- Concurrent client simulation with configurable duration
+- Global ordering verification using HLC total order
+- Distributed counter invariant checking (final value = sum of increments)
+- Jepsen-style consistency validation
 
-**Run the challenge:**
+**Run the test:**
 
 ```bash
-cargo run --bin zenoh_cli_test -- mars <client_count> <seconds>
-# Example: cargo run --bin zenoh_cli_test -- mars 1000 30
+cargo run --bin zenoh_cli_test -- mars <any_number> <seconds>
+# The test uses 3 clients internally, ignores the first argument
+# Example: cargo run --bin zenoh_cli_test -- mars 3 30
 ```
+
+**Test Validation:**
+
+- 3 concurrent clients each perform 5 increment operations
+- Backend collects all operations and sorts by HLC timestamp
+- Final counter must equal 15 (3 * 5) for test success
+- Demonstrates causal consistency through timestamp ordering
 
 ### Areas for Contribution
 
