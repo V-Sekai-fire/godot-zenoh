@@ -14,7 +14,6 @@ use std::thread;
 
 use crate::networking::ZenohSession;
 
-#[derive(Debug)]
 enum ZenohCommand {
     CreateServer {
         port: i32,
@@ -28,7 +27,28 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
+
     GetTimestamp,
+}
+
+impl std::fmt::Debug for ZenohCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ZenohCommand::CreateServer { port } => write!(f, "CreateServer {{ port: {} }}", port),
+            ZenohCommand::CreateClient { address, port } => write!(
+                f,
+                "CreateClient {{ address: \"{}\", port: {} }}",
+                address, port
+            ),
+            ZenohCommand::SendPacket { data, channel } => write!(
+                f,
+                "SendPacket {{ data: {} bytes, channel: {} }}",
+                data.len(),
+                channel
+            ),
+            ZenohCommand::GetTimestamp => write!(f, "GetTimestamp"),
+        }
+    }
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
@@ -59,6 +79,7 @@ impl ZenohActor {
                         self.session = Some(s);
 
                         if let Some(sess) = &mut self.session {
+                            // FIXED: Setup channels - callback will be set from peer layer
                             for channel in 0..=255 {
                                 if let Err(_e) = sess.setup_channel(channel).await {
                                     return Some(ZenohStateUpdate::ConnectionFailed {
@@ -69,6 +90,9 @@ impl ZenohActor {
                                     });
                                 }
                             }
+
+                            // FIXME: Message callback will be set from peer layer after connection
+                            // TODO: Need to set callback that delivers from networking to peer queue
                         }
 
                         Some(ZenohStateUpdate::ServerCreated { zid })

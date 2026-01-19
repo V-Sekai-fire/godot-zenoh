@@ -16,12 +16,16 @@ pub struct Packet {
     pub timestamp: Timestamp,
 }
 
+/// Message delivery callback type for bridging networking to peer layer
+pub type MessageCallback = Box<dyn Fn(PackedByteArray, i32, i32) + Send + Sync>;
+
 /// Zenoh networking session with channel-based topics - ASYNC IMPLEMENTATION
 pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     publishers: Arc<Mutex<HashMap<String, Arc<Publisher<'static>>>>>,
     subscribers_initialized: Arc<Mutex<std::collections::HashSet<String>>>,
     message_queue: Arc<Mutex<Vec<Packet>>>,
+    message_callback: Option<Arc<MessageCallback>>, // FIXED: Callback to deliver messages to peer
     game_id: String,
     peer_id: i64,
 }
@@ -64,6 +68,7 @@ impl ZenohSession {
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
             message_queue: Arc::new(Mutex::new(Vec::new())),
+            message_callback: None,
             game_id,
             peer_id,
         })
@@ -109,9 +114,15 @@ impl ZenohSession {
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
             message_queue: Arc::new(Mutex::new(Vec::new())),
+            message_callback: None,
             game_id,
             peer_id,
         })
+    }
+
+    /// Set callback for message delivery to peer layer (FIXED: Critical message flow wiring)
+    pub fn set_message_callback(&mut self, callback: MessageCallback) {
+        self.message_callback = Some(Arc::new(callback));
     }
 
     /// Send packet on specific topic-based channel (async)
@@ -177,11 +188,11 @@ impl ZenohSession {
             let subscriber = self.session.declare_subscriber(topic).await?;
             godot_print!("== Subscriber created, setting up message forwarding");
 
-            // Get reference to message queue for delivery
+            // Get references for message delivery
             let message_queue = self.message_queue.clone();
-
-            // Get reference to session for timestamp generation
+            let message_callback = self.message_callback.as_ref().cloned(); // FIXED: Get callback for peer delivery
             let sess = Arc::clone(&self.session);
+            let current_channel = channel; // Capture channel for delivery
 
             // Spawn task to handle incoming messages and forward to Godot peer
             tokio::spawn(async move {
@@ -213,35 +224,43 @@ impl ZenohSession {
                                     sender_peer_bytes.try_into().unwrap_or([0; 8]),
                                 );
 
-                                // Use message timestamp if available, otherwise generate fresh HLC timestamp
-                                let packet_timestamp =
-                                    if let Some(msg_timestamp) = sample.timestamp() {
-                                        *msg_timestamp
-                                    } else {
-                                        sess.new_timestamp()
+                                // FIXED: CRITICAL MESSAGE FLOW - Deliver to Godot peer via callback
+                                // This bridges the networking.rssubscriber -> peer.rs get_packet() pipeline
+                                if let Some(ref callback) = message_callback {
+                                    let godot_packet =
+                                        PackedByteArray::from(message_data.as_slice());
+                                    callback(godot_packet, current_channel, sender_peer_id as i32);
+                                    godot_print!(
+                                        "== DELIVERED: packet with {} data bytes from peer {} on channel {} to Godot peer",
+                                        message_data.len(),
+                                        sender_peer_id,
+                                        current_channel
+                                    );
+                                } else {
+                                    // Fallback to local queue if no callback set
+                                    let packet_timestamp =
+                                        if let Some(msg_timestamp) = sample.timestamp() {
+                                            *msg_timestamp
+                                        } else {
+                                            sess.new_timestamp()
+                                        };
+
+                                    let packet = Packet {
+                                        data: message_data.clone(),
+                                        timestamp: packet_timestamp,
                                     };
 
-                                let packet_data_len = message_data.len();
+                                    {
+                                        let mut queue = message_queue.lock().unwrap();
+                                        queue.push(packet);
+                                    }
 
-                                let packet = Packet {
-                                    data: message_data.clone(),
-                                    timestamp: packet_timestamp,
-                                };
-
-                                // TODO: CRITICAL FIX NEEDED - This queues messages in ZenohSession.message_queue
-                                // TODO: But Godot's get_packet() method checks ZenohMultiplayerPeer.message_queue
-                                // TODO: Messages NEVER reach Godot peer! Need to wire this delivery pipe.
-                                // FIXME: Create a callback mechanism to deliver packets from networking peer layer
-                                {
-                                    let mut queue = message_queue.lock().unwrap();
-                                    queue.push(packet);
+                                    godot_print!(
+                                        "== QUEUED: packet with {} data bytes from peer {} queued locally (no callback)",
+                                        message_data.len(),
+                                        sender_peer_id
+                                    );
                                 }
-
-                                godot_print!(
-                                    "== QUEUED: packet with {} data bytes from peer {} queued",
-                                    packet_data_len,
-                                    sender_peer_id
-                                );
                             } else {
                                 godot_error!(
                                     "== Message too short (len={}), skipping",

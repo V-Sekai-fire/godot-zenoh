@@ -6,10 +6,6 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "server_test"
-path = "src/bin/server_test.rs"
-
 [dependencies]
 godot = {git = "https://github.com/godot-rust/gdext.git", features = ["api-4-4", "experimental-threads", "register-docs"]}
 zenoh = "1.7.2"

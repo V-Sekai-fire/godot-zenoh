@@ -3,6 +3,12 @@ extends Node
 # Core Linearizability Test for Zenoh Peers
 # Validates distributed consistency using formal theory
 
+# FIXME: LINEARIZABILITY TEST CURRENTLY BROKEN DUE TO MISSING MESSAGE DELIVERY
+# FIXME: Test fails because multiplayer messages NEVER flow between peers
+# FIXME: ZenohSession subscribers queue messages but ZenohMultiplayerPeer.get_packet() returns empty
+# TODO: Fix message delivery pipeline: ZenohSession -> message callback -> ZenohMultiplayerPeer.message_queue
+# TODO: Need to wire callback in ZenohMultiplayerPeer connection success handlers
+
 var zenoh_peer: ZenohMultiplayerPeer
 var is_server: bool = false
 var player_id: int = 0
@@ -105,7 +111,7 @@ func query_shared_state() -> int:
 
 	# FIXME: Mock wait - real implementation would receive server response packet
 	await get_tree().create_timer(0.1).timeout
-	return shared_counter  # Mock response - MOUTH REAL multiplayer coordination broken!
+	return shared_counter  # Mock response - NO REAL multiplayer coordination (broken!)
 
 func modify_shared_state(delta: int) -> bool:
 	if is_server:
