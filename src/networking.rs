@@ -21,6 +21,7 @@ pub struct ZenohSession {
     session: Arc<zenoh::Session>,
     publishers: Arc<Mutex<HashMap<String, Arc<Publisher<'static>>>>>,
     subscribers_initialized: Arc<Mutex<std::collections::HashSet<String>>>,
+    message_queue: Arc<Mutex<Vec<Packet>>>,
     game_id: String,
     peer_id: i64,
 }
@@ -62,6 +63,7 @@ impl ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            message_queue: Arc::new(Mutex::new(Vec::new())),
             game_id,
             peer_id,
         })
@@ -106,6 +108,7 @@ impl ZenohSession {
             session,
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers_initialized: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            message_queue: Arc::new(Mutex::new(Vec::new())),
             game_id,
             peer_id,
         })
@@ -166,9 +169,9 @@ impl ZenohSession {
 
         // Setup subscriber for bi-directional communication
         if !self.subscribers_initialized.lock().unwrap().contains(topic) {
-            godot_print!("=' Creating subscriber for topic {}", topic);
+            godot_print!("== Creating subscriber for topic {}", topic);
             let subscriber = self.session.declare_subscriber(topic).await?;
-            godot_print!("=á Subscriber created, setting up message forwarding");
+            godot_print!("== Subscriber created, setting up message forwarding");
 
             // Get reference to message queue for delivery
             let message_queue = self.message_queue.clone();
@@ -181,29 +184,30 @@ impl ZenohSession {
                         Ok(sample) => {
                             recv_counter += 1;
                             let payload = sample.payload();
-                            godot_print!("=è RECEIVED #{}, {} bytes on topic {}", recv_counter, payload.len(), &topic);
+                            godot_print!("== RECEIVED #{}: {} bytes on topic {}", recv_counter, payload.len(), &topic);
 
                             // Parse message format and extract data portion
                             // Zenoh messages have 8-byte sender peer_id header, then payload
                             if payload.len() >= 8 {
-                                // Extract data (skip peer_id header)
-                                let message_data = payload.slice(8..);
+                                // Convert payload to Vec using available methods
+                                let payload_bytes = payload.as_ref().to_vec();
+                                let message_data = payload_bytes[8..].to_vec();
 
-                                // Create Packet for Godot
+                                // For now, use a simple timestamp replacement until proper HLC timestamp integration
                                 let packet = Packet {
-                                    data: message_data.to_vec(),
-                                    timestamp: sample.timestamp().unwrap_or_default(),
+                                    data: message_data,
+                                    timestamp: Timestamp::new(0, 0), // Simplified for now
                                 };
 
                                 // Queue message for Godot peer
                                 message_queue.lock().unwrap().push(packet);
-                                godot_print!(" Queued message for Godot peer delivery");
+                                godot_print!("== Queued message for Godot peer delivery");
                             } else {
-                                godot_error!("L Message too short (len={}), skipping", payload.len());
+                                godot_error!("== Message too short (len={}), skipping", payload.len());
                             }
                         }
                         Err(e) => {
-                            godot_error!("L Subscriber error on {}: {:?}", &topic, e);
+                            godot_error!("== Subscriber error on {}: {:?}", &topic, e);
                             break;
                         }
                     }
@@ -211,7 +215,7 @@ impl ZenohSession {
             });
 
             self.subscribers_initialized.lock().unwrap().insert(topic.to_string());
-            godot_print!(" Subscriber setup complete for topic {}", topic);
+            godot_print!("== Subscriber setup complete for topic {}", topic);
         }
 
         Ok(())

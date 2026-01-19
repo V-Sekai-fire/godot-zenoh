@@ -115,13 +115,16 @@ impl ZenohActor {
             }
             ZenohCommand::GetTimestamp => {
                 if let Some(sess) = &mut self.session {
-                    // Get timestamp as nanoseconds since epoch
-                    // This implements the HLC timestamp for distributed linearizability
-                    let timestamp = sess.get_hlc_timestamp();
-                    Some(ZenohStateUpdate::TimestampObtained { timestamp })
+                    // Get current time as nanoseconds for distributed linearizability testing
+                    // NOTE: Proper HLC timestamp integration pending API clarification
+                    let now_ns = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as i64;
+                    Some(ZenohStateUpdate::TimestampObtained { timestamp: now_ns })
                 } else {
                     // No HLC available - router disconnection, fail with panic
-                    panic!("No Zenoh session available for HLC timestamp - router disconnection");
+                    panic!("No Zenoh session available for timestamp - router disconnection");
                 }
             }
         }
@@ -277,6 +280,7 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
+            current_timestamp: 0,
             message_queue: Arc::new(Mutex::new(Vec::new())),
             base: _base,
         }
