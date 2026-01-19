@@ -214,7 +214,7 @@ fn test_linearizability_concurrent_write_read() {
 #[test]
 fn test_linearizability_multi_peer_messaging() {
     // Test messages from multiple peers with proper ordering
-    let mut session = TestZenohSession::new();
+    let _session = TestZenohSession::new();
     let mut peer = TestZenohMultiplayerPeer::new();
 
     let peer1_id = 100;
@@ -373,28 +373,28 @@ fn test_linearizability_concurrent_channel_operations() {
 // Mock implementations for property testing
 
 struct TestZenohSession {
-    channels: std::collections::HashSet<i32>,
+    _channels: std::collections::HashSet<i32>,
 }
 
 impl TestZenohSession {
     fn new() -> Self {
         Self {
-            channels: std::collections::HashSet::new(),
+            _channels: std::collections::HashSet::new(),
         }
     }
 
-    fn setup_channel(&mut self, channel: i32) -> Result<(), String> {
-        if channel < 0 || channel > 255 {
-            return Err("Channel out of range".to_string());
-        }
-        self.channels.insert(channel);
-        Ok(())
-    }
+    // fn setup_channel(&mut self, channel: i32) -> Result<(), String> {
+    //     if !(0..=255).contains(&channel) {
+    //         return Err("Channel out of range".to_string());
+    //     }
+    //     self.channels.insert(channel);
+    //     Ok(())
+    // }
 
-    fn send_packet(&mut self, _data: &[u8], _game_id: String, _channel: i32) -> Result<(), String> {
-        // Mock successful send
-        Ok(())
-    }
+    // fn send_packet(&mut self, _data: &[u8], _game_id: String, _channel: i32) -> Result<(), String> {
+    //     // Mock successful send
+    //     Ok(())
+    // }
 
     fn get_timestamp(&mut self) -> Result<i64, String> {
         // Return monotonically increasing timestamp
@@ -405,9 +405,9 @@ impl TestZenohSession {
             .as_nanos() as i64)
     }
 
-    fn advance_time(&mut self, _microseconds: i64) {
-        // Mock time advancement for testing
-    }
+    // fn advance_time(&mut self, _microseconds: i64) {
+    //     // Mock time advancement for testing
+    // }
 }
 
 struct TestZenohMultiplayerPeer {
@@ -441,7 +441,7 @@ impl TestZenohMultiplayerPeer {
         self.queued_packets
             .iter()
             .filter(|(_, ch, _)| *ch == channel)
-            .map(|(data, ch, peer_id)| (data.clone(), *peer_id))
+            .map(|(data, _ch, peer_id)| (data.clone(), *peer_id))
             .collect()
     }
 
@@ -450,3 +450,5 @@ impl TestZenohMultiplayerPeer {
         self.queued_packets.push((data, channel, peer_id));
     }
 }
+
+

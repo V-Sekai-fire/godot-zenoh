@@ -111,7 +111,7 @@ fn main() {
             let total_time = start_time.elapsed().as_secs_f64();
 
             // Calculate and display Mars results
-            println!("");
+            println!();
             println!("Mars Extreme Test Results:");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -122,14 +122,14 @@ fn main() {
             let total_errors = mars_metrics.get_total_errors();
 
             println!("Total Test Time: {:.2} seconds", total_time);
-            println!("");
+            println!();
             println!("Mars Traffic Metrics:");
             println!("   Requests Sent: {}", requests_sent);
             println!("   Responses Received: {}", responses_received);
             println!("   Backend Computations: {}", backend_computations);
             println!("   Client Verifications: {}", hash_verifications);
             println!("   System Throughput: {:.0} req/sec", requests_sent as f64 / total_time);
-            println!("");
+            println!();
 
             // Calculate success metrics
             let response_rate = if requests_sent > 0 {
@@ -151,7 +151,7 @@ fn main() {
             println!("   Verification Rate: {:.1}%", verification_rate);
             println!("   Total Success Rate: {:.1}%", total_success_rate);
             println!("   Packet Loss Simulation: {} errors", total_errors);
-            println!("");
+            println!();
 
             println!("Mars Scaling Analysis:");
             println!("   Zenoh Transport: Working");
@@ -161,7 +161,7 @@ fn main() {
             println!("   Total Targeted: {} clients", num_clients);
             println!("   Transport Efficiency: {}x improvement over UDP",
                 if response_rate > 90.0 { effective_clients * 10 } else { effective_clients });
-            println!("");
+            println!();
 
             println!("Mars Mission Status:");
             if total_success_rate >= 95.0 {
@@ -177,17 +177,17 @@ fn main() {
                 println!("   ████████░░░░░░░░░░░ {}% - SYSTEM ANALYSIS REQUIRED", total_success_rate as u32);
                 println!("   Zenoh transport limitations detected");
             }
-            println!("");
+            println!();
             println!("Quorum Requirements Analysis:");
-            print_quorum_analysis(num_clients, effective_clients as usize, response_rate);
-            println!("");
+            print_quorum_analysis(num_clients, effective_clients, response_rate);
+            println!();
             println!("Zenoh Transport Advantages Demonstrated:");
             println!("   • Automatic retransmission and reliability");
             println!("   • Publisher-subscriber scaling (O(n) vs O(n^2))");
             println!("   • Built-in flow control and backpressure");
             println!("   • Topic-based message routing");
             println!("   • Session state management");
-            println!("");
+            println!();
             println!("Mars Extreme test completed!");
         }
 
@@ -207,7 +207,7 @@ fn main() {
             println!("   Minimum Quorum Size: {} peers", quorum_size);
             println!("   Fault Tolerance: {} peer failures", fault_tolerance);
             println!("   Active Peers Needed: {} for consensus", total_peers_needed);
-            println!("");
+            println!();
         }
 
         fn print_quorum_analysis(target_clients: usize, effective_clients: usize, response_rate: f64) {
@@ -502,7 +502,7 @@ fn main() {
             let total_time = start_time.elapsed().as_secs_f64();
 
             // Calculate and display results
-            println!("");
+            println!();
             println!("Scaling Benchmark Results:");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -513,7 +513,7 @@ fn main() {
             let total_errors = metrics_collector.get_total_errors();
 
             println!("Total Test Time: {:.2} seconds", total_time);
-            println!("");
+            println!();
             println!("Connection Metrics:");
             println!("   Connection Attempts: {}", connection_attempts);
             println!(
@@ -525,7 +525,7 @@ fn main() {
                     0.0
                 }
             );
-            println!("");
+            println!();
             println!("Message Throughput:");
             println!("   Messages Sent: {}", messages_sent);
             println!("   Messages Received: {}", messages_received);
@@ -537,7 +537,7 @@ fn main() {
                 "   Throughput: {:.0} msg/sec per peer",
                 (messages_sent + messages_received) as f64 / total_time / num_peers as f64
             );
-            println!("");
+            println!();
             println!("Performance Scaling:");
             let efficiency = if num_peers > 0 {
                 (messages_received as f64 / messages_sent as f64) * 100.0
@@ -548,7 +548,7 @@ fn main() {
             println!("   Average Latency: <10ms (estimated - router-based)");
             println!("   Memory Usage: {} sessions", successful_connections);
             println!("   Errors: {}", total_errors);
-            println!("");
+            println!();
             println!("Quality Metrics:");
             let stability_score = if connection_attempts > 0 && total_errors == 0 {
                 100.0
@@ -566,7 +566,7 @@ fn main() {
                     "GOOD"
                 }
             );
-            println!("");
+            println!();
             println!("Scaling Analysis:");
             println!("   Traditional UDP Broadcasting: Msg/sec = O(n^2) explosion");
             println!("   Zenoh Pub-Sub Architecture: Msg/sec = O(n) linear scaling");
@@ -574,7 +574,7 @@ fn main() {
                 "   Godot Multiplayer Enhancement: {}x efficiency gained",
                 num_peers * 2
             );
-            println!("");
+            println!();
             println!("Benchmark completed successfully!");
         }
 
@@ -743,9 +743,9 @@ fn main() {
 }
 
 fn show_usage() {
-    println!("");
+    println!();
     println!("Usage: zenoh_cli_test [COMMAND] [OPTIONS]");
-    println!("");
+    println!();
     println!("Commands:");
     println!("  network ROLE [MSG]     Connect to real Zenoh network");
     println!("    ROLE: publisher|subscriber (default: auto)");
@@ -753,7 +753,7 @@ fn show_usage() {
     println!("  scale PEERS [SECONDS]  Run multi-peer scaling benchmark");
     println!("  mars CLIENTS [SEC]      Run 1M client UDP throughput test");
     println!("  info|help              Show this information");
-    println!("");
+    println!();
     println!("Examples:");
     println!("  cargo run --bin zenoh_cli_test -- start-router");
     println!("  cargo run --bin zenoh_cli_test -- network publisher \"Hello World\"");
@@ -765,7 +765,7 @@ fn show_usage() {
 
 fn show_test_info() {
     println!("Zenoh-Godot Real Network CLI");
-    println!("");
+    println!();
     println!("Direct Zenoh API testing - no mocks, no simulations:");
     println!("• Zenoh session creation and management");
     println!("• Publisher/Subscriber communication");
@@ -773,7 +773,7 @@ fn show_test_info() {
     println!("• Godot channel/topic routing");
     println!("• Multi-peer networking validation");
     println!("• Performance scaling benchmarks");
-    println!("");
+    println!();
     println!("Capabilities:");
     println!("• Connects to real Zenoh networks");
     println!("• Uses actual Zenoh API calls");

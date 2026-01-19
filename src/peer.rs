@@ -12,6 +12,8 @@ use godot::global::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+type MessageQueue = Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>;
+
 use crate::networking::ZenohSession;
 
 enum ZenohCommand {
@@ -60,11 +62,11 @@ enum ZenohStateUpdate {
 struct ZenohActor {
     session: Option<ZenohSession>,
     game_id: GodotString,
-    message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>,
+    message_queue: MessageQueue,
 }
 
 impl ZenohActor {
-    fn new(game_id: GodotString, message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>) -> Self {
+    fn new(game_id: GodotString, message_queue: MessageQueue) -> Self {
         Self {
             session: None,
             game_id,
@@ -177,7 +179,7 @@ struct ZenohAsyncBridge {
 }
 
 impl ZenohAsyncBridge {
-    fn new(game_id: GodotString, message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>) -> Self {
+    fn new(game_id: GodotString, message_queue: MessageQueue) -> Self {
         let command_queue = Arc::new(Mutex::new(Vec::new()));
         let event_queue = Arc::new(Mutex::new(Vec::new()));
         let stop_flag = Arc::new(Mutex::new(false));
@@ -302,7 +304,7 @@ pub struct ZenohMultiplayerPeer {
     // FIXED: CRITICAL BUG - Message callback now properly wires networking.rs subscribers to peer.rs message_queue
     // FIXED: MessageCallback set in ZenohActor.handle_command before channel setup so subscribers use the peer queue
     // FIXED: Messages from ZenohSession subscribers now deliver directly to get_packet() via shared Arc message_queue
-    message_queue: Arc<Mutex<Vec<(Vec<u8>, i32, i32)>>>,
+    message_queue: MessageQueue,
 
     base: Base<MultiplayerPeerExtension>,
 }
@@ -666,3 +668,4 @@ impl ZenohMultiplayerPeer {
         0
     }
 }
+
