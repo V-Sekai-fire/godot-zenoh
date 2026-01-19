@@ -45,6 +45,7 @@ pub fn validate_hlc_timestamp(incoming: Timestamp, current: Timestamp) -> (Times
 }
 
 /// Zenoh-native packet using topic-based routing with channel-based priority
+/// Public for CLI testing and external validation
 #[derive(Clone, Debug)]
 pub struct Packet {
     pub data: Vec<u8>, // Using Vec<u8> - will optimize to ZBuf when api known

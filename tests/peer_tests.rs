@@ -79,8 +79,14 @@ fn test_linearizability_sequential_consistency() {
     operations.push((ts3, "write3", data3));
 
     // Verify sequential timestamp ordering
-    assert!(timestamps[1] >= timestamps[0], "Timestamps should be non-decreasing");
-    assert!(timestamps[2] >= timestamps[1], "Timestamps should be non-decreasing");
+    assert!(
+        timestamps[1] >= timestamps[0],
+        "Timestamps should be non-decreasing"
+    );
+    assert!(
+        timestamps[2] >= timestamps[1],
+        "Timestamps should be non-decreasing"
+    );
 
     // Verify we can retrieve all packets in FIFO order
     let mut buffer = vec![0u8; 10];
@@ -197,9 +203,11 @@ fn test_linearizability_concurrent_write_read() {
 
     // Verify timestamp ordering throughout operations
     for i in 1..operation_log.len() {
-        assert!(operation_log[i].1 >= operation_log[i-1].1,
-                "Operations should maintain timestamp ordering: {:?}",
-                operation_log);
+        assert!(
+            operation_log[i].1 >= operation_log[i - 1].1,
+            "Operations should maintain timestamp ordering: {:?}",
+            operation_log
+        );
     }
 }
 
@@ -278,16 +286,22 @@ fn test_linearizability_timestamp_precision() {
 
     // All timestamps should be unique and non-decreasing
     for i in 1..timestamps.len() {
-        assert!(timestamps[i] >= timestamps[i-1],
-                "Timestamp precision should prevent ordering violations: {} >= {}",
-                timestamps[i], timestamps[i-1]);
+        assert!(
+            timestamps[i] >= timestamps[i - 1],
+            "Timestamp precision should prevent ordering violations: {} >= {}",
+            timestamps[i],
+            timestamps[i - 1]
+        );
     }
 
     // Check that timestamps are reasonably distinct (not all identical)
     let unique_timestamps: std::collections::HashSet<_> = timestamps.iter().cloned().collect();
-    assert!(unique_timestamps.len() > timestamps.len() / 2,
-            "Timestamps should have sufficient precision: {} unique out of {}",
-            unique_timestamps.len(), timestamps.len());
+    assert!(
+        unique_timestamps.len() > timestamps.len() / 2,
+        "Timestamps should have sufficient precision: {} unique out of {}",
+        unique_timestamps.len(),
+        timestamps.len()
+    );
 }
 
 #[test]
