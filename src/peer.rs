@@ -12,7 +12,7 @@ use godot::global::Error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::networking::{MessageCallback, ZenohSession};
+use crate::networking::ZenohSession;
 
 enum ZenohCommand {
     CreateServer {

@@ -9,6 +9,41 @@ use std::sync::{Arc, Mutex};
 use zenoh::pubsub::Publisher;
 use zenoh::time::Timestamp;
 
+/// Maximum allowed future timestamp offset for HLC leash (5 seconds in nanoseconds)
+/// Prevents excessive clock skew in distributed systems by clamping timestamps too far in the future
+/// Based on FoundationDB/CockroachDB: clamp rather than reject to preserve availability
+const HLC_MAX_FUTURE_OFFSET_NANOS: i64 = 5_000_000_000; // 5 seconds
+
+/// Validate HLC timestamp against leash bounds. Clamps future timestamps to prevent excessive skew.
+/// Based on FoundationDB approach: never reject, always clamp to maintain availability.
+/// Returns validated timestamp (may be clamped) and whether clamping occurred.
+/// Public for testing the leash enforcement in property tests.
+pub fn validate_hlc_timestamp(incoming: Timestamp, current: Timestamp) -> (Timestamp, bool) {
+    let incoming_nanos = incoming.get_time().as_nanos() as i64;
+    let current_nanos = current.get_time().as_nanos() as i64;
+
+    let offset = incoming_nanos - current_nanos;
+
+    if offset > HLC_MAX_FUTURE_OFFSET_NANOS {
+        // Clamp to maximum allowed future timestamp by reusing current ID
+        // FoundationDB approach: clamp rather than reject for availability
+        let _clamped_nanos = current_nanos + HLC_MAX_FUTURE_OFFSET_NANOS;
+        godot_print!(
+            "HLC LEASH: Would clamp future timestamp {}ns -> {}ns ({}s off) - peer ID: {}",
+            offset,
+            HLC_MAX_FUTURE_OFFSET_NANOS,
+            offset / 1_000_000_000,
+            incoming.get_id()
+        );
+
+        // For now, use current timestamp as clamped version (TODO: proper clamping)
+        // This ensures linearizability bounds are violated gracefully
+        (current, true) // Return current timestamp and flag that clamping occurred
+    } else {
+        (incoming, false) // Valid timestamp, no clamping
+    }
+}
+
 /// Zenoh-native packet using topic-based routing with channel-based priority
 #[derive(Clone, Debug)]
 pub struct Packet {
@@ -224,6 +259,15 @@ impl ZenohSession {
                                     sender_peer_bytes.try_into().unwrap_or([0; 8]),
                                 );
 
+                                // HLC LEASH: Validate and clamp timestamp to prevent clock skew
+                                let incoming_timestamp = sample
+                                    .timestamp()
+                                    .copied()
+                                    .unwrap_or_else(|| sess.new_timestamp());
+                                let current_timestamp = sess.new_timestamp();
+                                let (validated_timestamp, _was_clamped) =
+                                    validate_hlc_timestamp(incoming_timestamp, current_timestamp);
+
                                 // FIXED: CRITICAL MESSAGE FLOW - Deliver to Godot peer via callback
                                 // This bridges the networking.rssubscriber -> peer.rs get_packet() pipeline
                                 if let Some(ref callback) = message_callback {
@@ -237,17 +281,10 @@ impl ZenohSession {
                                         current_channel
                                     );
                                 } else {
-                                    // Fallback to local queue if no callback set
-                                    let packet_timestamp =
-                                        if let Some(msg_timestamp) = sample.timestamp() {
-                                            *msg_timestamp
-                                        } else {
-                                            sess.new_timestamp()
-                                        };
-
+                                    // Fallback to local queue if no callback set - use validated timestamp
                                     let packet = Packet {
                                         data: message_data.clone(),
-                                        timestamp: packet_timestamp,
+                                        timestamp: validated_timestamp,
                                     };
 
                                     {
