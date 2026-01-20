@@ -1,18 +1,25 @@
 # Contributing to Godot Zenoh Multiplayer Extension
 
-Thank you for your interest in contributing to the Godot Zenoh Multiplayer Extension! This GDExtension provides a Zenoh-based networking backend for Godot's multiplayer system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking prevention.
+Thank you for your interest in contributing to the Godot Zenoh Multiplayer Extension!
+This GDExtension provides a Zenoh-based networking backend for Godot's multiplayer
+system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking
+prevention.
 
 ## Project Overview
 
-This extension implements fast "brutal flow" messaging using Zenoh as the transport layer for Godot's multiplayer system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking prevention.
+This extension implements fast "brutal flow" messaging using Zenoh as the transport
+layer for Godot's multiplayer system, offering low-latency pub/sub communication with
+Head-of-Line (HOL) blocking prevention.
 
 ### Architecture: "Brutal Flow" - Direct/Fast Path
+
 **Purpose**: Real-time gaming communication
+
 - **Speed**: Priority on latency via direct Zenoh pub/sub messaging
 - **Reliability**: Best-effort delivery for performances
 - **Use Cases**: Player movement, shooting, chat, physics sync
 - **Implementation**: `ZenohMultiplayerPeer` with HOL blocking prevention
-- **Quality**: Low-latency (<10ms typical), high-throughput message passing
+- **Quality**: Low-latency (\<10ms typical), high-throughput message passing
 
 ### Technical Features
 
@@ -64,10 +71,12 @@ cd sample
 godot --headless project.godot
 ```
 
-The test creates 1 server + 10 clients and verifies messages are properly distributed via Zenoh pub-sub. Success indicators:
-- ✓ All clients connect successfully
-- ✓ All clients send packets successfully
-- 🎉 "Multi-client networking stack test PASSED!"
+The test creates 1 server + 10 clients and verifies messages are properly distributed
+via Zenoh pub-sub. Success indicators:
+
+- \[ok\] All clients connect successfully
+- \[ok\] All clients send packets successfully
+- \[success\] "Multi-client networking stack test PASSED!"
 
 ## Project Structure
 
@@ -112,19 +121,23 @@ godot-zenoh/
 This extension implements a **proper pub-sub architecture** where:
 
 1. **Publishers** send messages to topic-based channels
-2. **Subscribers** receive messages from the same channels
-3. **Fanout behavior** ensures messages sent by any peer are received by all other connected peers
+1. **Subscribers** receive messages from the same channels
+1. **Fanout behavior** ensures messages sent by any peer are received by all other
+   connected peers
 
 #### Message Flow Example:
+
 ```rust
-// Peer A sends message → Zenoh pub/sub → Peers B, C, D all receive the message
-client_a.send_packet(data, channel: 0)  // → zenoh/keyexpr("godot/game/{game_id}/channel000")
+// Peer A sends message -> Zenoh pub/sub -> Peers B, C, D all receive the message
+client_a.send_packet(data, channel: 0)  // -> zenoh/keyexpr("godot/game/{game_id}/channel000")
 // Peers B, C, D all receive via their subscribers on the same channel
 ```
 
-#### Recent Fixes ✅
+#### Recent Fixes
 
-**Pub-Sub Fanout Fix**: Previously, the implementation had **isolated peer-to-peer behavior** where peers could only send but never receive messages. This has been fixed to restore **proper server-to-client fanout**:
+**Pub-Sub Fanout Fix**: Previously, the implementation had **isolated peer-to-peer
+behavior** where peers could only send but never receive messages. This has been fixed
+to restore **proper server-to-client fanout**:
 
 - Added `Subscriber<FifoChannelHandler<Sample>>` to `ZenohSession`
 - Implemented packet polling with `poll_packets()` method
@@ -144,19 +157,23 @@ Messages use topic-based routing: `godot/game/{game_id}/channel{channel_id:03d}`
 ### Code Standards
 
 - **Professional Logging**: Use clean, emoji-free error messages and logging statements
-- **Rust Best Practices**: Follow idiomatic Rust patterns, proper error handling, and comprehensive documentation
-- **Godot Integration**: Ensure compatibility with Godot's MultiplayerAPI and signal system
+- **Rust Best Practices**: Follow idiomatic Rust patterns, proper error handling, and
+  comprehensive documentation
+- **Godot Integration**: Ensure compatibility with Godot's MultiplayerAPI and signal
+  system
 - **Async Safety**: Respect Zenoh's Send/Sync constraints using actor patterns
 - **Memory Management**: Be mindful of Godot's garbage collection and reference counting
 
 ### Testing
 
 #### Unit Tests
+
 ```bash
 cargo test
 ```
 
 #### Integration Tests
+
 ```bash
 # Start Zenoh router
 ./bin/zenohd &
@@ -170,6 +187,7 @@ python3 test_python_client.py --client-id 2 --game pong_test
 ```
 
 #### Multiplayer Testing
+
 ```bash
 # Terminal 1: Start server
 godot --headless main_scene.tscn --server
@@ -180,13 +198,15 @@ godot --headless main_scene.tscn --client
 
 ### Git Commit Guidelines
 
-This project does not use conventional commits. Use clear, descriptive commit messages that explain:
+This project does not use conventional commits. Use clear, descriptive commit messages
+that explain:
 
 - **What** was changed
 - **Why** the change was necessary
 - **How** the change addresses the issue
 
 Example:
+
 ```
 Fix race condition in message routing logic
 
@@ -198,17 +218,18 @@ and validate ordering constraints in property-based tests.
 ### Pull Request Process
 
 1. **Fork and Branch**: Create a feature branch from `main`
-2. **Implement Changes**: Add tests for new functionality
-3. **Code Quality**:
+1. **Implement Changes**: Add tests for new functionality
+1. **Code Quality**:
    - Run `cargo fmt` and `cargo clippy`
    - Ensure all tests pass
    - Update documentation
-4. **Commit**: Use clear, descriptive commit messages as documented above
-5. **PR Description**: Include what was changed and why
+1. **Commit**: Use clear, descriptive commit messages as documented above
+1. **PR Description**: Include what was changed and why
 
 ### Reporting Issues
 
 Please include:
+
 - Godot version and platform
 - Rust version (`rustc --version`)
 - Zenoh router version
