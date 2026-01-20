@@ -41,10 +41,33 @@ cd godot-zenoh
 ### Build the Extension
 
 ```bash
+# Debug build (for development)
+cargo build
+
+# Release build (for production/testing)
+cargo build --release
 ./build.sh
+
+# Copy DLL to sample project for testing
+cp target/release/godot_zenoh.dll sample/
 ```
 
 This will compile the Rust code into a GDExtension library that Godot can load.
+
+#### Testing Pub-Sub Behavior
+
+To verify the pub-sub fanout works correctly:
+
+```bash
+# Run the comprehensive networking test
+cd sample
+godot --headless project.godot
+```
+
+The test creates 1 server + 10 clients and verifies messages are properly distributed via Zenoh pub-sub. Success indicators:
+- ✓ All clients connect successfully
+- ✓ All clients send packets successfully
+- 🎉 "Multi-client networking stack test PASSED!"
 
 ## Project Structure
 
@@ -59,16 +82,22 @@ godot-zenoh/
 │   ├── networking_tests.rs      # Zenoh networking tests
 │   ├── peer_tests.rs            # Peer implementation tests
 │   └── peer_tests.proptest-regressions  # Property test regressions
-├── godot_zenoh/                 # Godot test project
-│   ├── core/
-│   │   ├── connection_genserver.gd
-│   │   ├── election_genserver.gd
-│   │   ├── game_genserver.gd
-│   │   └── pong_test.gd
-│   ├── scenes/
-│   │   ├── main_scene.tscn
-│   │   └── pong_test.tscn
-│   └── scenes.tscn
+├── sample/                       # Godot test project
+│   ├── godot_zenoh/              # Test game code
+│   │   ├── core/
+│   │   │   ├── connection_genserver.gd
+│   │   │   ├── election_genserver.gd
+│   │   │   ├── game_genserver.gd
+│   │   │   └── pong_test.gd
+│   │   ├── scenes/
+│   │   │   ├── main_scene.tscn
+│   │   │   ├── test_scene.tscn     # Pub-sub networking tests
+│   │   │   └── pong_test.tscn
+│   │   ├── test_zenoh_networking.gd  # Comprehensive networking tests
+│   │   └── scenes.tscn
+│   ├── godot-zenoh.dll           # Compiled extension
+│   ├── godot-zenoh.gdextension   # Extension configuration
+│   └── project.godot             # Godot project file
 ├── build.sh                     # Build script
 ├── Cargo.toml                   # Rust dependencies
 ├── gdextension.json             # Godot extension configuration
@@ -78,18 +107,37 @@ godot-zenoh/
 
 ## Networking Architecture
 
-### Message Flow Routing
+### Pub-Sub Message Flow
 
-Messages are sent through the brutal flow for low-latency communication:
+This extension implements a **proper pub-sub architecture** where:
 
+1. **Publishers** send messages to topic-based channels
+2. **Subscribers** receive messages from the same channels
+3. **Fanout behavior** ensures messages sent by any peer are received by all other connected peers
+
+#### Message Flow Example:
 ```rust
-// Quick player movement - goes through brutal flow
-player.move_to(position)  // -> Zenoh pub/sub direct messaging
+// Peer A sends message → Zenoh pub/sub → Peers B, C, D all receive the message
+client_a.send_packet(data, channel: 0)  // → zenoh/keyexpr("godot/game/{game_id}/channel000")
+// Peers B, C, D all receive via their subscribers on the same channel
 ```
 
-### Network Isolation
+#### Recent Fixes ✅
 
-Messages use the brutal flow key expression: `game/{game_id}/brutal/{channel_id}` - Direct messaging
+**Pub-Sub Fanout Fix**: Previously, the implementation had **isolated peer-to-peer behavior** where peers could only send but never receive messages. This has been fixed to restore **proper server-to-client fanout**:
+
+- Added `Subscriber<FifoChannelHandler<Sample>>` to `ZenohSession`
+- Implemented packet polling with `poll_packets()` method
+- Added peer ID headers for message attribution
+- Created comprehensive testing for pub-sub behavior
+
+### Channel-Based Routing
+
+Messages use topic-based routing: `godot/game/{game_id}/channel{channel_id:03d}`
+
+- **Channel 0**: Default reliable channel
+- **Channels 1-255**: HOL-blocking prevention virtual channels
+- **Isolation**: Each game has its own topic namespace
 
 ## Development Guidelines
 

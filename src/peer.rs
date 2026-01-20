@@ -28,11 +28,13 @@ enum ZenohCommand {
         data: Vec<u8>,
         channel: i32,
     },
+    PollPackets,
 }
 enum ZenohStateUpdate {
     ServerCreated { zid: String },
     ClientConnected { zid: String, peer_id: i64 },
     ConnectionFailed { error: String },
+    PacketReceived { data: Vec<u8>, sender_peer_id: i32, channel: i32 },
 }
 
 struct ZenohActor {
@@ -108,6 +110,22 @@ impl ZenohActor {
                     let _result = sess
                         .send_packet(&data, self.game_id.to_string(), channel)
                         .await;
+                }
+                None
+            }
+            ZenohCommand::PollPackets => {
+                if let Some(sess) = &mut self.session {
+                    if let Err(e) = sess.poll_packets().await {
+                        eprintln!("Error polling packets: {:?}", e);
+                    }
+                    // Check for one packet and return it as an event
+                    if let Some(packet) = sess.get_next_packet() {
+                        return Some(ZenohStateUpdate::PacketReceived {
+                            data: packet.data,
+                            sender_peer_id: packet.sender_peer_id,
+                            channel: packet.channel,
+                        });
+                    }
                 }
                 None
             }
@@ -237,6 +255,9 @@ pub struct ZenohMultiplayerPeer {
 
     zid: GodotString,
 
+    // Packet reception queue
+    received_packets: Vec<crate::networking::ReceivedPacket>,
+
     base: Base<MultiplayerPeerExtension>,
 }
 
@@ -253,11 +274,12 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             max_packet_size: 1472,
             current_packet_peer: 0,
             zid: GString::from(""),
+            received_packets: Vec::new(),
             base: _base,
         }
     }
     fn get_available_packet_count(&self) -> i32 {
-        0
+        self.received_packets.len() as i32
     }
 
     fn get_max_packet_size(&self) -> i32 {
@@ -317,6 +339,13 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
     fn poll(&mut self) {
         if let Some(bridge) = &self.async_bridge {
+            // Poll for new packets if connected
+            if self.connection_status == 2 { // CONNECTED
+                if let Err(e) = bridge.send_command(ZenohCommand::PollPackets) {
+                    eprintln!("Error sending poll packets command: {:?}", e);
+                }
+            }
+
             let events = bridge.get_events();
             for event in events {
                 match event {
@@ -340,6 +369,17 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
 
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
+                    ZenohStateUpdate::PacketReceived { data, sender_peer_id, channel } => {
+                        let packet = crate::networking::ReceivedPacket {
+                            data,
+                            sender_peer_id,
+                            channel,
+                        };
+                        self.received_packets.push(packet);
+                        // Update current_packet_peer to the sender
+                        self.current_packet_peer = sender_peer_id;
+                        self.current_channel = channel;
+                    }
                 }
             }
         } else {
@@ -355,6 +395,8 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
             // godot_print!("ZenohMultiplayerPeer connection closed");
         }
         self.connection_status = 0;
+        // Clear any received packets when closing
+        self.received_packets.clear();
     }
 
     fn disconnect_peer(&mut self, _peer_id: i32, _force: bool) {
@@ -407,8 +449,14 @@ impl ZenohMultiplayerPeer {
 
     #[func]
     fn get_packet(&mut self) -> PackedByteArray {
-        // godot_print!("DEBUG: No packets available - local queuing disabled");
-        PackedByteArray::new()
+        if !self.received_packets.is_empty() {
+            let packet = self.received_packets.remove(0);
+            self.current_packet_peer = packet.sender_peer_id;
+            self.current_channel = packet.channel;
+            PackedByteArray::from(packet.data.as_slice())
+        } else {
+            PackedByteArray::new()
+        }
     }
 
     #[func]

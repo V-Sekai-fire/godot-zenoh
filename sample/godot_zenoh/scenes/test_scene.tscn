@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cus5ut8q5f8rn"]
+
+[ext_resource type="Script" path="res://godot_zenoh/test_zenoh_networking.gd" id="1_test"]
+
+[node name="NetworkTest" type="Node"]
+script = ExtResource("1_test")

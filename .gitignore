@@ -49,3 +49,4 @@ bin/*
 
 # Zenoh binaries (not part of the core HOL prevention implementation)
 zenoh.zip
+sample/godot_zenoh.dll
