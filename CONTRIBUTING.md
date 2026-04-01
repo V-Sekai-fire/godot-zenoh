@@ -1,182 +1,122 @@
-# Contributing to Godot Zenoh Multiplayer Extension
+# Contributing to godot-zenoh
 
-Thank you for your interest in contributing to the Godot Zenoh Multiplayer Extension! This GDExtension provides a Zenoh-based networking backend for Godot's multiplayer system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking prevention.
-
-## Project Overview
-
-This extension implements fast "brutal flow" messaging using Zenoh as the transport layer for Godot's multiplayer system, offering low-latency pub/sub communication with Head-of-Line (HOL) blocking prevention.
-
-### Architecture: "Brutal Flow" - Direct/Fast Path
-**Purpose**: Real-time gaming communication
-- **Speed**: Priority on latency via direct Zenoh pub/sub messaging
-- **Reliability**: Best-effort delivery for performances
-- **Use Cases**: Player movement, shooting, chat, physics sync
-- **Implementation**: `ZenohMultiplayerPeer` with HOL blocking prevention
-- **Quality**: Low-latency (<10ms typical), high-throughput message passing
-
-### Technical Features
-
-- **Async networking** with Tokio runtime
-- **HOL blocking prevention** using 256 virtual channels
-- **Automatic synchronization** support
-- **Thread-safe actor pattern** for Godot integration
-- **Comprehensive debug logging** and performance monitoring
-
-## Development Setup
+## Development setup
 
 ### Prerequisites
 
-- **Rust**: 1.70+ with Cargo
-- **Godot**: 4.3+ (for testing the extension)
-- **Zenoh Router**: For running multiplayer tests
-- **Python 3**: For running test clients
+| Tool | Version |
+|------|---------|
+| Rust | stable (1.70+) |
+| Godot | 4.6+ (for running sample/tests) |
 
-### Clone and Setup
-
-```bash
-git clone <repository-url>
-cd godot-zenoh
-```
-
-### Build the Extension
+### Build
 
 ```bash
-./build.sh
+cargo build
 ```
 
-This will compile the Rust code into a GDExtension library that Godot can load.
+Copy the output library into the sample project before testing with Godot:
 
-## Project Structure
-
-```
-godot-zenoh/
-├── src/
-│   ├── lib.rs                   # Main extension initialization
-│   ├── peer.rs                  # ZenohMultiplayerPeer - Brutal flow implementation
-│   └── networking.rs            # Zenoh session and packet routing
-├── tests/                       # Integration tests
-│   ├── integration.rs           # Full system integration tests
-│   ├── networking_tests.rs      # Zenoh networking tests
-│   ├── peer_tests.rs            # Peer implementation tests
-│   └── peer_tests.proptest-regressions  # Property test regressions
-├── godot_zenoh/                 # Godot test project
-│   ├── core/
-│   │   ├── connection_genserver.gd
-│   │   ├── election_genserver.gd
-│   │   ├── game_genserver.gd
-│   │   └── pong_test.gd
-│   ├── scenes/
-│   │   ├── main_scene.tscn
-│   │   └── pong_test.tscn
-│   └── scenes.tscn
-├── build.sh                     # Build script
-├── Cargo.toml                   # Rust dependencies
-├── gdextension.json             # Godot extension configuration
-├── project.godot                # Godot project file
-└── CONTRIBUTING.md
-```
-
-## Networking Architecture
-
-### Message Flow Routing
-
-Messages are sent through the brutal flow for low-latency communication:
-
-```rust
-// Quick player movement - goes through brutal flow
-player.move_to(position)  // -> Zenoh pub/sub direct messaging
-```
-
-### Network Isolation
-
-Messages use the brutal flow key expression: `game/{game_id}/brutal/{channel_id}` - Direct messaging
-
-## Development Guidelines
-
-### Code Standards
-
-- **Professional Logging**: Use clean, emoji-free error messages and logging statements
-- **Rust Best Practices**: Follow idiomatic Rust patterns, proper error handling, and comprehensive documentation
-- **Godot Integration**: Ensure compatibility with Godot's MultiplayerAPI and signal system
-- **Async Safety**: Respect Zenoh's Send/Sync constraints using actor patterns
-- **Memory Management**: Be mindful of Godot's garbage collection and reference counting
-
-### Testing
-
-#### Unit Tests
 ```bash
-cargo test
+# macOS
+cp target/debug/libgodot_zenoh.dylib sample/addons/godot-zenoh/
+
+# Linux
+cp target/debug/libgodot_zenoh.so sample/addons/godot-zenoh/
 ```
 
-#### Integration Tests
+Run `godot --headless --path sample --import --quit` once after a fresh clone to
+let Godot register the extension.
+
+## Running tests
+
+### Rust tests
+
 ```bash
-# Start Zenoh router
-./bin/zenohd &
-
-# Run Godot tests
-godot --headless --script test_class_registration.gd
-
-# Run Python client tests
-python3 test_python_client.py --client-id 1 --game pong_test
-python3 test_python_client.py --client-id 2 --game pong_test
+cargo test                     # unit + integration
+cargo test --test integration  # 3-peer packet-delivery test only
 ```
 
-#### Multiplayer Testing
+### End-to-end GDScript test
+
+Requires Godot 4.6+ on `PATH` (or at `/Applications/Godot.app` on macOS):
+
 ```bash
-# Terminal 1: Start server
-godot --headless main_scene.tscn --server
-
-# Terminal 2: Start client
-godot --headless main_scene.tscn --client
+bash misc/test_multiplayer_sync.sh
 ```
 
-### Git Commit Guidelines
+Launches 1 headless server and 2 headless clients, verifies `@rpc` delivery
+and `MultiplayerSynchronizer` replication, exits 0 on success.
 
-This project does not use conventional commits. Use clear, descriptive commit messages that explain:
+## Code standards
 
-- **What** was changed
-- **Why** the change was necessary
-- **How** the change addresses the issue
+- Run `cargo fmt` before committing.
+- Run `cargo clippy` and resolve all warnings.
+- Follow idiomatic Rust error handling — no `unwrap()` in production paths.
+- Use `godot_print!` / `godot_error!` for Godot-visible log output.
+- Do not use the `uhlc` crate (see `Cargo.toml` comment).
 
-Example:
+## Project structure
+
+See [README.md](README.md) for the full layout and architecture diagram.
+
+Key files:
+
+| File | Purpose |
+|------|---------|
+| `src/peer.rs` | `ZenohMultiplayerPeer` — `IMultiplayerPeerExtension` impl, signal emission, packet queue |
+| `src/networking.rs` | `ZenohSession` — async Zenoh pub/sub, discovery beacon, peer-ID derivation |
+| `tests/integration.rs` | 3-peer Rust integration test |
+| `sample/godot_zenoh/core/sync_test.gd` | GDScript RPC + MultiplayerSynchronizer test |
+| `misc/test_multiplayer_sync.sh` | Shell script that runs the GDScript test headlessly |
+
+## Networking architecture
+
+Packets travel on Zenoh topics:
+
 ```
-Fix race condition in message routing logic
-
-Implement proper message ordering in Zenoh networking layer to prevent
-concurrent access issues. Add mutex guards around shared packet queues
-and validate ordering constraints in property-based tests.
+godot/game/{game_id}/channel{NNN}   # game data (channels 0–255)
+godot/game/{game_id}/discovery       # peer-announce beacons (no payload beyond peer_id header)
 ```
 
-### Pull Request Process
+Every packet is prefixed with an 8-byte little-endian `peer_id` so receivers
+can attribute and filter messages. Self-echoed messages are dropped in
+`ZenohSession::drain_packets`.
 
-1. **Fork and Branch**: Create a feature branch from `main`
-2. **Implement Changes**: Add tests for new functionality
-3. **Code Quality**:
-   - Run `cargo fmt` and `cargo clippy`
-   - Ensure all tests pass
-   - Update documentation
-4. **Commit**: Use clear, descriptive commit messages as documented above
-5. **PR Description**: Include what was changed and why
+When a client connects it publishes a zero-payload beacon on the discovery
+topic so the server emits `peer_connected` before sending its first RPC.
 
-### Reporting Issues
+## Pull request process
+
+1. Branch from `main`.
+2. Make changes with tests.
+3. `cargo fmt && cargo clippy` — no warnings.
+4. `cargo test` — all pass.
+5. `bash misc/test_multiplayer_sync.sh` — exits 0.
+6. Open PR with a description covering what changed and why.
+
+## Commit messages
+
+No conventional-commit prefix required. Write what changed and why:
+
+```
+Fix RPC routing when server has no known peers yet
+
+Previously rpc_ping.rpc() sent to nobody because the server hadn't
+received any packets from clients at send time. Discovery beacons now
+let the server emit peer_connected before sending its first RPC.
+```
+
+## Reporting issues
 
 Please include:
-- Godot version and platform
+
+- Platform and OS version
+- Godot version (`godot --version`)
 - Rust version (`rustc --version`)
-- Zenoh router version
 - Steps to reproduce
-- Full error logs (with debug logging enabled)
-- Expected vs actual behavior
-
-### Areas for Contribution
-
-- Performance optimizations
-- Additional networking features
-- Better error handling
-- Documentation improvements
-- Cross-platform testing
-- Godot editor integration
+- Full log output
 
 ## License
 
-This project is licensed under the MIT License.
+MIT — see [LICENSE](LICENSE).
