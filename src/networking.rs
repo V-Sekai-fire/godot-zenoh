@@ -4,8 +4,8 @@
 use godot::global::Error;
 use godot::prelude::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 use zenoh::pubsub::Publisher;
 use zenoh::pubsub::Subscriber;
@@ -110,7 +110,10 @@ impl ZenohSession {
             packet_data.extend_from_slice(&self.peer_id.to_le_bytes());
             packet_data.extend_from_slice(p_buffer);
             if let Err(e) = publisher.put(packet_data).await {
-                eprintln!("Failed to send Zenoh packet on channel {}: {:?}", channel, e);
+                eprintln!(
+                    "Failed to send Zenoh packet on channel {}: {:?}",
+                    channel, e
+                );
                 return Error::FAILED;
             }
         } else {
@@ -193,8 +196,11 @@ impl ZenohSession {
     pub async fn setup_discovery(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let topic: &'static str =
-            Box::leak(Self::discovery_topic(&self.game_id).to_string().into_boxed_str());
+        let topic: &'static str = Box::leak(
+            Self::discovery_topic(&self.game_id)
+                .to_string()
+                .into_boxed_str(),
+        );
         if !self.publishers.lock().unwrap().contains_key(topic) {
             let publisher = self.session.declare_publisher(topic).await?;
             self.publishers
@@ -209,7 +215,10 @@ impl ZenohSession {
             .callback(move |sample| {
                 let raw: Vec<u8> = sample.payload().to_bytes().into_owned();
                 // Discovery beacons use channel i32::MIN as a sentinel.
-                let _ = tx.try_send(ReceivedPacket { raw, channel: i32::MIN });
+                let _ = tx.try_send(ReceivedPacket {
+                    raw,
+                    channel: i32::MIN,
+                });
             })
             .await?;
         self._subscribers.push(subscriber);
@@ -222,7 +231,11 @@ impl ZenohSession {
 
     /// Derive a valid Godot peer ID (positive i32, ≥ 2) from a Zenoh ZID string.
     pub fn peer_id_from_zid(zid: &str) -> i64 {
-        let hex = if zid.len() >= 8 { &zid[zid.len() - 8..] } else { zid };
+        let hex = if zid.len() >= 8 {
+            &zid[zid.len() - 8..]
+        } else {
+            zid
+        };
         let raw = u32::from_str_radix(hex, 16).unwrap_or(2);
         // Clamp to [2, i32::MAX] so the ID is a valid positive Godot peer ID.
         (raw % (i32::MAX as u32 - 1) + 2) as i64

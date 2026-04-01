@@ -46,31 +46,24 @@ mod multi_peer_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_three_peer_packet_delivery() {
         // --- server ---
-        let mut server =
-            ZenohSession::create_server(SERVER_PORT, GAME_ID.to_string(), None)
-                .await
-                .expect("server creation failed");
+        let mut server = ZenohSession::create_server(SERVER_PORT, GAME_ID.to_string(), None)
+            .await
+            .expect("server creation failed");
 
         // Give the server a moment to bind.
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         // --- client_a ---
-        let mut client_a = ZenohSession::create_client(
-            "127.0.0.1".to_string(),
-            SERVER_PORT,
-            GAME_ID.to_string(),
-        )
-        .await
-        .expect("client_a creation failed");
+        let mut client_a =
+            ZenohSession::create_client("127.0.0.1".to_string(), SERVER_PORT, GAME_ID.to_string())
+                .await
+                .expect("client_a creation failed");
 
         // --- client_b ---
-        let mut client_b = ZenohSession::create_client(
-            "127.0.0.1".to_string(),
-            SERVER_PORT,
-            GAME_ID.to_string(),
-        )
-        .await
-        .expect("client_b creation failed");
+        let mut client_b =
+            ZenohSession::create_client("127.0.0.1".to_string(), SERVER_PORT, GAME_ID.to_string())
+                .await
+                .expect("client_b creation failed");
 
         // Setup channel 0 on all three peers.
         server.setup_channel(0).await.expect("server channel setup");
@@ -130,9 +123,7 @@ mod multi_peer_tests {
 
         // --- Server broadcasts a state update ---
         let server_msg = b"server_state:tick=42";
-        let result = server
-            .send_packet(server_msg, GAME_ID.to_string(), 0)
-            .await;
+        let result = server.send_packet(server_msg, GAME_ID.to_string(), 0).await;
         assert_eq!(result, godot::global::Error::OK, "server send failed");
 
         tokio::time::sleep(Duration::from_millis(1000)).await;

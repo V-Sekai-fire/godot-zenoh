@@ -31,12 +31,25 @@ enum ZenohCommand {
 }
 
 enum ZenohStateUpdate {
-    ServerCreated { zid: String },
-    ClientConnected { zid: String, peer_id: i64 },
-    ConnectionFailed { error: String },
-    PacketReceived { data: Vec<u8>, peer_id: i32, channel: i32 },
+    ServerCreated {
+        zid: String,
+    },
+    ClientConnected {
+        zid: String,
+        peer_id: i64,
+    },
+    ConnectionFailed {
+        error: String,
+    },
+    PacketReceived {
+        data: Vec<u8>,
+        peer_id: i32,
+        channel: i32,
+    },
     /// A discovery beacon arrived — no packet data, just peer identity.
-    PeerDiscovered { peer_id: i32 },
+    PeerDiscovered {
+        peer_id: i32,
+    },
 }
 
 struct ZenohActor {
@@ -367,7 +380,8 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         self.base_mut().emit_signal("connection_succeeded", &[]);
                         // Announce server as a known peer (id=1 by Godot convention).
                         self.known_peers.insert(1);
-                        self.base_mut().emit_signal("peer_connected", &[1i64.to_variant()]);
+                        self.base_mut()
+                            .emit_signal("peer_connected", &[1i64.to_variant()]);
                     }
                     ZenohStateUpdate::ServerCreated { zid } => {
                         self.connection_status = 2;
@@ -380,7 +394,11 @@ impl IMultiplayerPeerExtension for ZenohMultiplayerPeer {
                         godot_error!("CONNECTION FAILED: {}", error);
                         self.base_mut().emit_signal("connection_failed", &[]);
                     }
-                    ZenohStateUpdate::PacketReceived { data, peer_id, channel } => {
+                    ZenohStateUpdate::PacketReceived {
+                        data,
+                        peer_id,
+                        channel,
+                    } => {
                         // Announce any previously-unseen peer (fallback discovery via data).
                         self.announce_peer_if_new(peer_id);
                         self.packet_queue.push((data, peer_id, channel));
