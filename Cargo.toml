@@ -23,3 +23,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 [features]
 default = []
+# Requires GODOT4_BIN env var pointing to a double-precision Godot editor binary.
+# Build one with: PRECISION=double ./misc/build_godot.sh
+double-precision = ["godot/api-custom", "godot/double-precision"]
