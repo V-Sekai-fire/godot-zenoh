@@ -6,9 +6,20 @@ reloadable = true
 
 [libraries]
 
-linux.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.so"
-macos.universal = "res://addons/godot-zenoh/libgodot_zenoh.dylib"
-windows.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.dll"
+linux.debug.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.linux.template_release.x86_64.so"
+linux.release.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.linux.template_release.x86_64.so"
+linux.debug.double.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.linux.template_release.double.x86_64.so"
+linux.release.double.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.linux.template_release.double.x86_64.so"
+
+macos.debug = "res://addons/godot-zenoh/libgodot_zenoh.macos.template_release.universal.dylib"
+macos.release = "res://addons/godot-zenoh/libgodot_zenoh.macos.template_release.universal.dylib"
+macos.debug.double = "res://addons/godot-zenoh/libgodot_zenoh.macos.template_release.double.universal.dylib"
+macos.release.double = "res://addons/godot-zenoh/libgodot_zenoh.macos.template_release.double.universal.dylib"
+
+windows.debug.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.windows.template_release.x86_64.dll"
+windows.release.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.windows.template_release.x86_64.dll"
+windows.debug.double.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.windows.template_release.double.x86_64.dll"
+windows.release.double.x86_64 = "res://addons/godot-zenoh/libgodot_zenoh.windows.template_release.double.x86_64.dll"
 
 [dependencies]
 

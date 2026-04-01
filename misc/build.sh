@@ -6,6 +6,11 @@
 # Build script for Godot Zenoh GDExtension
 # This builds the Rust library for the target platform.
 #
+# Single and double precision libraries are placed in the same addon directory
+# with platform/precision in the filename, matching godot-zenoh.gdextension:
+#   single → libgodot_zenoh.{platform}.template_release.{arch}.{ext}
+#   double → libgodot_zenoh.{platform}.template_release.double.{arch}.{ext}
+#
 # Usage:
 #   ./misc/build.sh                   # single precision (default)
 #   PRECISION=double ./misc/build.sh  # double precision
@@ -15,27 +20,18 @@ set -e
 
 PRECISION="${PRECISION:-single}"
 
-echo "Building Godot Zenoh GDExtension (precision=$PRECISION)..."
-
-# Get the target triple from uname
+# ── Detect platform / arch ────────────────────────────────────────────────────
 case "$(uname -s)" in
     Linux)
-        TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+        PLATFORM="linux"
         LIB_EXT="so"
         ;;
     Darwin)
-        case "$(uname -m)" in
-            arm64)
-                TARGET_TRIPLE="aarch64-apple-darwin"
-                ;;
-            x86_64)
-                TARGET_TRIPLE="x86_64-apple-darwin"
-                ;;
-        esac
+        PLATFORM="macos"
         LIB_EXT="dylib"
         ;;
     CYGWIN*|MINGW32*|MSYS*|MINGW*)
-        TARGET_TRIPLE="x86_64-pc-windows-gnu"
+        PLATFORM="windows"
         LIB_EXT="dll"
         ;;
     *)
@@ -44,8 +40,20 @@ case "$(uname -s)" in
         ;;
 esac
 
-echo "Target: $TARGET_TRIPLE"
-echo "Library extension: $LIB_EXT"
+case "$(uname -m)" in
+    arm64|aarch64) ARCH="arm64" ;;
+    x86_64)        ARCH="x86_64" ;;
+    *)             echo "Unsupported arch: $(uname -m)"; exit 1 ;;
+esac
+
+# macOS builds target universal; Linux/Windows use explicit arch
+if [ "$PLATFORM" = "macos" ]; then
+    ARCH_LABEL="universal"
+else
+    ARCH_LABEL="$ARCH"
+fi
+
+echo "Building Godot Zenoh GDExtension (precision=$PRECISION, platform=$PLATFORM, arch=$ARCH_LABEL)..."
 
 mkdir -p sample/addons/godot-zenoh
 
@@ -53,13 +61,13 @@ mkdir -p sample/addons/godot-zenoh
 build_precision() {
     local prec="$1"  # "single" or "double"
     local cargo_features=""
-    local lib_suffix=""
+    local prec_label=""
 
     if [ "$prec" = "double" ]; then
         cargo_features="--features double-precision"
-        lib_suffix=".double"
-        # double-precision requires api-custom which needs the Godot binary.
-        # Default: look for the binary built by misc/build_godot.sh.
+        prec_label=".double"
+        # double-precision feature uses api-custom and needs the Godot binary
+        # to extract the extension API JSON at compile time.
         if [ -z "$GODOT4_BIN" ]; then
             local default_bin
             default_bin="$(pwd)/misc/godot-bin/godot.double"
@@ -77,11 +85,15 @@ build_precision() {
 
     echo ""
     echo "=== Building extension ($prec precision) ==="
-    # Build into a separate target dir so both precisions can coexist
+    # Separate target dirs so both precisions can coexist without a full rebuild
     CARGO_TARGET_DIR="target/${prec}" cargo build --release $cargo_features
 
     local src_lib="target/${prec}/release/libgodot_zenoh.$LIB_EXT"
-    local dst_lib="sample/addons/godot-zenoh/libgodot_zenoh${lib_suffix}.$LIB_EXT"
+    # Filename matches gdextension [libraries] keys, e.g.:
+    #   libgodot_zenoh.linux.template_release.x86_64.so
+    #   libgodot_zenoh.linux.template_release.double.x86_64.so
+    local dst_name="libgodot_zenoh.${PLATFORM}.template_release${prec_label}.${ARCH_LABEL}.${LIB_EXT}"
+    local dst_lib="sample/addons/godot-zenoh/$dst_name"
 
     if [ ! -f "$src_lib" ]; then
         echo "Error: Built library not found at $src_lib"
@@ -92,7 +104,7 @@ build_precision() {
 
     # On macOS, code signing is required for libraries
     if [ "$LIB_EXT" = "dylib" ]; then
-        echo "Code signing GDExtension library for macOS..."
+        echo "Code signing for macOS..."
         codesign --force --sign - "$dst_lib"
     fi
 
@@ -114,5 +126,5 @@ case "$PRECISION" in
 esac
 
 echo ""
-echo "Done. Extension libraries in sample/addons/godot-zenoh/:"
-ls -lh sample/addons/godot-zenoh/libgodot_zenoh* 2>/dev/null || true
+echo "Done. Libraries in sample/addons/godot-zenoh/:"
+ls -lh sample/addons/godot-zenoh/libgodot_zenoh.* 2>/dev/null | awk '{print "  " $NF}' || true
