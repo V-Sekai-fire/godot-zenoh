@@ -89,6 +89,7 @@ build_precision() {
         platform="$PLATFORM" \
         target=editor \
         arch="$ARCH" \
+        vulkan=no \
         $extra_flags \
         -j"$JOBS"
 

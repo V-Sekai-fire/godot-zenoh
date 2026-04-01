@@ -80,6 +80,7 @@ jobs:
             platform=${{ matrix.platform }} \
             target=editor \
             arch=${{ matrix.arch }} \
+            vulkan=no \
             -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 
       - name: Build Godot (double precision)
@@ -90,6 +91,7 @@ jobs:
             target=editor \
             arch=${{ matrix.arch }} \
             precision=double \
+            vulkan=no \
             -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 
       - name: Collect binary
