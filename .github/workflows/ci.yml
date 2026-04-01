@@ -43,6 +43,16 @@ jobs:
             arch: arm64
             precision: double
             artifact: godot-macos-arm64-double
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+            precision: single
+            artifact: godot-windows-x64-single
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+            precision: double
+            artifact: godot-windows-x64-double
 
     steps:
       - name: Restore Godot binary cache
@@ -67,14 +77,18 @@ jobs:
         if: runner.os == 'macOS' && steps.cache-godot.outputs.cache-hit != 'true'
         run: brew install scons
 
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows' && steps.cache-godot.outputs.cache-hit != 'true'
+        run: pip install scons
+
       - name: Clone Godot source
         if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch "$GODOT_VERSION" \
+          git clone --depth 1 --branch "${{ env.GODOT_VERSION }}" \
             https://github.com/godotengine/godot.git godot-src
 
-      - name: Build Godot (single precision)
-        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'single'
+      - name: Build Godot (single precision, Unix)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'single' && runner.os != 'Windows'
         run: |
           scons -C godot-src \
             platform=${{ matrix.platform }} \
@@ -83,8 +97,8 @@ jobs:
             vulkan=no \
             -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 
-      - name: Build Godot (double precision)
-        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'double'
+      - name: Build Godot (double precision, Unix)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'double' && runner.os != 'Windows'
         run: |
           scons -C godot-src \
             platform=${{ matrix.platform }} \
@@ -94,8 +108,31 @@ jobs:
             vulkan=no \
             -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
 
-      - name: Collect binary
-        if: steps.cache-godot.outputs.cache-hit != 'true'
+      - name: Build Godot (single precision, Windows)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'single' && runner.os == 'Windows'
+        run: |
+          scons -C godot-src `
+            platform=${{ matrix.platform }} `
+            target=editor `
+            arch=${{ matrix.arch }} `
+            vulkan=no `
+            d3d12=no `
+            "-j$([Environment]::ProcessorCount)"
+
+      - name: Build Godot (double precision, Windows)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'double' && runner.os == 'Windows'
+        run: |
+          scons -C godot-src `
+            platform=${{ matrix.platform }} `
+            target=editor `
+            arch=${{ matrix.arch }} `
+            precision=double `
+            vulkan=no `
+            d3d12=no `
+            "-j$([Environment]::ProcessorCount)"
+
+      - name: Collect binary (Unix)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && runner.os != 'Windows'
         run: |
           mkdir -p godot-bin
           if [ "${{ matrix.precision }}" = "double" ]; then
@@ -108,6 +145,20 @@ jobs:
           echo "Copying godot-src/bin/$bin -> godot-bin/$out"
           cp "godot-src/bin/$bin" "godot-bin/$out"
           chmod +x "godot-bin/$out"
+
+      - name: Collect binary (Windows)
+        if: steps.cache-godot.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path godot-bin | Out-Null
+          if ("${{ matrix.precision }}" -eq "double") {
+            $bin = Get-ChildItem godot-src/bin | Where-Object { $_.Name -match "editor" -and $_.Name -match "double" -and $_.Name -match "${{ matrix.arch }}" } | Select-Object -First 1
+            $out = "godot.double.exe"
+          } else {
+            $bin = Get-ChildItem godot-src/bin | Where-Object { $_.Name -match "editor" -and $_.Name -notmatch "double" -and $_.Name -match "${{ matrix.arch }}" } | Select-Object -First 1
+            $out = "godot.exe"
+          }
+          Write-Output "Copying $($bin.Name) -> godot-bin/$out"
+          Copy-Item $bin.FullName "godot-bin/$out"
 
       - name: Upload Godot binary
         uses: actions/upload-artifact@v4
@@ -177,15 +228,28 @@ jobs:
           name: godot-macos-arm64-double
           path: misc/godot-bin
 
-      - name: Mark Godot binary executable
+      - name: Download Godot double-precision binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: godot-windows-x64-double
+          path: misc/godot-bin
+
+      - name: Mark Godot binary executable (Unix)
         if: runner.os != 'Windows'
         run: chmod +x misc/godot-bin/godot.double 2>/dev/null || true
 
-      - name: Lint (double precision)
+      - name: Lint (double precision, Unix)
         if: runner.os != 'Windows'
         run: cargo clippy --features double-precision -- -D warnings
         env:
           GODOT4_BIN: ${{ github.workspace }}/misc/godot-bin/godot.double
+
+      - name: Lint (double precision, Windows)
+        if: runner.os == 'Windows'
+        run: cargo clippy --features double-precision -- -D warnings
+        env:
+          GODOT4_BIN: ${{ github.workspace }}\misc\godot-bin\godot.double.exe
 
       - name: Build extension (double precision)
         if: runner.os != 'Windows'
@@ -193,6 +257,12 @@ jobs:
         env:
           PRECISION: double
           GODOT4_BIN: ${{ github.workspace }}/misc/godot-bin/godot.double
+
+      - name: Build extension (double precision, Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release --features double-precision
+        env:
+          GODOT4_BIN: ${{ github.workspace }}\misc\godot-bin\godot.double.exe
 
       # ── Tests ──────────────────────────────────────────────────────────────
       - name: Run tests
@@ -247,7 +317,9 @@ jobs:
           - os: windows-latest
             name: windows-x64-single
             godot_artifact: ""
-          # Note: windows double-precision skipped (no Windows Godot build in CI)
+          - os: windows-latest
+            name: windows-x64-double
+            godot_artifact: godot-windows-x64-double
 
     steps:
       - name: Checkout code
@@ -286,8 +358,14 @@ jobs:
           GODOT4_BIN: ${{ github.workspace }}/misc/godot-bin/godot.double
 
       - name: Build release (Windows single precision)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !contains(matrix.name, 'double')
         run: cargo build --release
+
+      - name: Build release (Windows double precision)
+        if: runner.os == 'Windows' && contains(matrix.name, 'double')
+        run: cargo build --release --features double-precision
+        env:
+          GODOT4_BIN: ${{ github.workspace }}\misc\godot-bin\godot.double.exe
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
