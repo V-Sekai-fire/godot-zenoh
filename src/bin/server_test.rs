@@ -36,7 +36,8 @@ async fn main() {
     let game_id_g = game_id.clone();
 
     // Create server session
-    let session = match ZenohSession::create_server(listen_port, game_id_g, connect_addr).await {
+    let mut session = match ZenohSession::create_server(listen_port, game_id_g, connect_addr).await
+    {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to create server: {:?}", e);
