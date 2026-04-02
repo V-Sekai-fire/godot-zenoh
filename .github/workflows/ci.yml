@@ -83,9 +83,12 @@ jobs:
 
       - name: Clone Godot source
         if: steps.cache-godot.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch "${{ env.GODOT_VERSION }}" \
-            https://github.com/godotengine/godot.git godot-src
+        uses: actions/checkout@v4
+        with:
+          repository: godotengine/godot
+          ref: ${{ env.GODOT_VERSION }}
+          path: godot-src
+          fetch-depth: 1
 
       - name: Build Godot (single precision, Unix)
         if: steps.cache-godot.outputs.cache-hit != 'true' && matrix.precision == 'single' && runner.os != 'Windows'
